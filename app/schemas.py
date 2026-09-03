@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.config import settings
+
 Verdict = Literal["real", "fake", "uncertain"]  # noqa: F841 - re-exported for docs
 
 
@@ -15,7 +17,7 @@ class PredictRequest(BaseModel):
     news: str = Field(
         ...,
         description="The article text to analyse.",
-        max_length=20_000,
+        max_length=settings.MAX_INPUT_LENGTH,
     )
 
     @field_validator("news")
