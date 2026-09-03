@@ -1,0 +1,356 @@
+"use strict";
+
+(() => {
+  const HISTORY_KEY = "fakenews.history";
+  const HISTORY_LIMIT = 20;
+
+  const elements = {
+    tabButtons: document.querySelectorAll(".tab"),
+    panels: document.querySelectorAll(".tab-panel"),
+    news: document.getElementById("news"),
+    newsUrl: document.getElementById("news-url"),
+    analyzeBtn: document.getElementById("analyze-btn"),
+    btnLabel: document.querySelector(".btn-label"),
+    spinner: document.querySelector(".spinner"),
+    clearBtn: document.getElementById("clear-btn"),
+    error: document.getElementById("error-message"),
+    resultSection: document.getElementById("result-section"),
+    sourceBadge: document.getElementById("source-badge"),
+    verdict: document.getElementById("verdict"),
+    verdictHint: document.getElementById("verdict-hint"),
+    confidence: document.getElementById("confidence"),
+    probReal: document.getElementById("prob-real"),
+    probFake: document.getElementById("prob-fake"),
+    explanationList: document.getElementById("explanation-list"),
+    historySection: document.getElementById("history-section"),
+    historyList: document.getElementById("history-list"),
+    clearHistoryBtn: document.getElementById("clear-history-btn"),
+  };
+
+  let activeTab = "text";
+
+  // ------------------------------------------------------------------ //
+  // Tab switching
+  // ------------------------------------------------------------------ //
+  elements.tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const tab = button.dataset.tab;
+      activateTab(tab);
+    });
+  });
+
+  function activateTab(tab) {
+    activeTab = tab;
+    elements.tabButtons.forEach((b) =>
+      b.classList.toggle("active", b.dataset.tab === tab),
+    );
+    elements.panels.forEach((p) =>
+      p.classList.toggle("hidden", p.dataset.panel !== tab),
+    );
+    clearError();
+    hideResult();
+  }
+
+  // ------------------------------------------------------------------ //
+  // Analysis
+  // ------------------------------------------------------------------ //
+  elements.analyzeBtn.addEventListener("click", () => analyze());
+  elements.clearBtn.addEventListener("click", clearAll);
+  elements.clearHistoryBtn.addEventListener("click", clearHistory);
+
+  function getPayload() {
+    if (activeTab === "text") {
+      return { news: elements.news.value };
+    }
+    return { url: elements.newsUrl.value.trim() };
+  }
+
+  function validate(payload) {
+    if (activeTab === "text") {
+      if (!payload.news || !payload.news.trim()) {
+        return "Please enter an article to analyze.";
+      }
+    } else {
+      if (!payload.url) {
+        return "Please enter a URL to analyze.";
+      }
+    }
+    return null;
+  }
+
+  async function analyze() {
+    const payload = getPayload();
+    const validationError = validate(payload);
+    if (validationError) {
+      showError(validationError);
+      return;
+    }
+
+    setLoading();
+    clearError();
+    hideResult();
+
+    const endpoint = activeTab === "text" ? "/predict" : "/predict-url";
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        let message = `Request failed (HTTP ${response.status}).`;
+        try {
+          const body = await response.json();
+          if (body && body.detail) {
+            if (typeof body.detail === "string") {
+              message = body.detail;
+            } else {
+              message = body.detail.map((d) => d.msg).join(", ");
+            }
+          }
+        } catch (_) {
+          // keep the default message if the response is not JSON
+        }
+        throw new Error(message);
+      }
+
+      const result = await response.json();
+      renderResult(result);
+      saveHistory(result);
+      renderHistory();
+    } catch (err) {
+      if (err instanceof TypeError && err.message === "Failed to fetch") {
+        showError(
+          "Unable to connect to the detector server. Please make sure the backend is running.",
+        );
+      } else {
+        showError(err.message || "Something went wrong. Please try again.");
+      }
+    } finally {
+      clearLoading();
+    }
+  }
+
+  function setLoading() {
+    elements.analyzeBtn.disabled = true;
+    elements.btnLabel.textContent = "Analysing…";
+    elements.spinner.classList.remove("hidden");
+  }
+
+  function clearLoading() {
+    elements.analyzeBtn.disabled = false;
+    elements.btnLabel.textContent = "Analyse";
+    elements.spinner.classList.add("hidden");
+  }
+
+  // ------------------------------------------------------------------ //
+  // Rendering
+  // ------------------------------------------------------------------ //
+  function renderResult(result) {
+    const label = result.label;
+    const sourceType = result.source_type || "text";
+
+    elements.resultSection.classList.remove("hidden");
+    elements.sourceBadge.textContent =
+      sourceType === "url" ? "URL source" : "Pasted text";
+
+    const verdictEl = elements.verdict;
+    verdictEl.textContent =
+      label === "uncertain" ? "Uncertain" : label.charAt(0).toUpperCase() + label.slice(1);
+    const box = verdictEl.closest(".verdict");
+    box.classList.remove("verdict-real", "verdict-fake", "verdict-uncertain");
+    box.classList.add(`verdict-${label}`);
+    elements.verdictHint.classList.toggle("hidden", label !== "uncertain");
+
+    elements.confidence.textContent = `${result.confidence}%`;
+    elements.probReal.textContent = `${result.probability_real}%`;
+    elements.probFake.textContent = `${result.probability_fake}%`;
+
+    renderExplanation(result.explanation);
+    window.scrollTo({ top: elements.resultSection.offsetTop - 20, behavior: "smooth" });
+  }
+
+  function renderExplanation(explanation) {
+    elements.explanationList.innerHTML = "";
+    if (!explanation || !explanation.top_influential_words.length) {
+      elements.explanationList.innerHTML =
+        '<p class="empty-history">No influential words available.</p>';
+      return;
+    }
+    explanation.top_influential_words.forEach((item) => {
+      const chip = document.createElement("div");
+      chip.className = "word-chip";
+
+      const word = document.createElement("span");
+      word.className = "word";
+      word.textContent = item.word;
+
+      const impact = document.createElement("span");
+      impact.className = "impact";
+      impact.textContent = `${item.impact}`;
+
+      const tag = document.createElement("span");
+      tag.className = `tag tag-${item.direction === "real" ? "real" : "fake"}`;
+      tag.textContent = item.direction === "real" ? "toward real" : "toward fake";
+
+      chip.append(word, impact, tag);
+      elements.explanationList.appendChild(chip);
+    });
+  }
+
+  function hideResult() {
+    elements.resultSection.classList.add("hidden");
+  }
+
+  // ------------------------------------------------------------------ //
+  // History (localStorage)
+  // ------------------------------------------------------------------ //
+  function loadHistory() {
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveHistory(result) {
+    let history = loadHistory();
+    const snippet =
+      activeTab === "text"
+        ? elements.news.value.trim().replace(/\s+/g, " ").slice(0, 60)
+        : elements.newsUrl.value.trim();
+    const entry = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      timestamp: Date.now(),
+      title: snippet || "Untitled analysis",
+      source_type: result.source_type || (activeTab === "url" ? "url" : "text"),
+      label: result.label,
+      confidence: result.confidence,
+      probability_real: result.probability_real,
+      probability_fake: result.probability_fake,
+    };
+    history.unshift(entry);
+    if (history.length > HISTORY_LIMIT) {
+      history = history.slice(0, HISTORY_LIMIT);
+    }
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch (_) {
+      // storage full or unavailable — ignore, history is best-effort
+    }
+  }
+
+  function renderHistory() {
+    const history = loadHistory();
+    elements.historySection.classList.toggle("hidden", history.length === 0);
+    elements.historyList.innerHTML = "";
+
+    history.forEach((entry) => {
+      const li = document.createElement("li");
+      li.className = "history-item";
+
+      const meta = document.createElement("div");
+      meta.className = "history-meta";
+
+      const title = document.createElement("div");
+      title.className = "history-title";
+      title.textContent = entry.title;
+      title.title = entry.title;
+
+      const subtitle = document.createElement("div");
+      subtitle.className = "history-subtitle";
+      subtitle.textContent =
+        formatDate(entry.timestamp) +
+        " · " +
+        (entry.source_type === "url" ? "URL" : "text");
+
+      meta.append(title, subtitle);
+
+      const result = document.createElement("div");
+      result.className = "history-result";
+
+      const verdict = document.createElement("span");
+      verdict.className = `history-verdict ${entry.label}`;
+      verdict.textContent =
+        entry.label === "uncertain"
+          ? "Uncertain"
+          : entry.label.charAt(0).toUpperCase() + entry.label.slice(1);
+
+      const confidence = document.createElement("div");
+      confidence.className = "history-confidence";
+      confidence.textContent = `${entry.confidence}% confidence`;
+
+      result.append(verdict, confidence);
+
+      li.append(meta, result);
+      li.addEventListener("click", () => openHistory(entry));
+      elements.historyList.appendChild(li);
+    });
+  }
+
+  function openHistory(entry) {
+    elements.resultSection.classList.remove("hidden");
+    const label = entry.label;
+    elements.sourceBadge.textContent =
+      entry.source_type === "url" ? "URL source" : "Pasted text";
+
+    const verdictEl = elements.verdict;
+    verdictEl.textContent =
+      label === "uncertain" ? "Uncertain" : label.charAt(0).toUpperCase() + label.slice(1);
+    const box = verdictEl.closest(".verdict");
+    box.classList.remove("verdict-real", "verdict-fake", "verdict-uncertain");
+    box.classList.add(`verdict-${label}`);
+    elements.verdictHint.classList.toggle("hidden", label !== "uncertain");
+
+    elements.confidence.textContent = `${entry.confidence}%`;
+    elements.probReal.textContent = `${entry.probability_real}%`;
+    elements.probFake.textContent = `${entry.probability_fake}%`;
+    elements.explanationList.innerHTML =
+      '<p class="empty-history">Saved history entry (explanation not stored).</p>';
+    window.scrollTo({ top: elements.resultSection.offsetTop - 20, behavior: "smooth" });
+  }
+
+  function clearHistory() {
+    try {
+      localStorage.removeItem(HISTORY_KEY);
+    } catch (_) {
+      // ignore
+    }
+    renderHistory();
+  }
+
+  function formatDate(ts) {
+    try {
+      return new Date(ts).toLocaleString();
+    } catch (_) {
+      return "Unknown time";
+    }
+  }
+
+  // ------------------------------------------------------------------ //
+  // Misc helpers
+  // ------------------------------------------------------------------ //
+  function showError(message) {
+    elements.error.textContent = message;
+    elements.error.classList.remove("hidden");
+  }
+
+  function clearError() {
+    elements.error.textContent = "";
+    elements.error.classList.add("hidden");
+  }
+
+  function clearAll() {
+    elements.news.value = "";
+    elements.newsUrl.value = "";
+    clearError();
+    hideResult();
+    elements.news.focus();
+  }
+
+  renderHistory();
+})();
