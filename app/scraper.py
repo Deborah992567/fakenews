@@ -88,9 +88,19 @@ class UrlFetcher:
         except requests.exceptions.ConnectionError as exc:
             raise ScrapeError("Unable to connect to the URL.") from exc
         except requests.exceptions.HTTPError as exc:
-            raise ScrapeError(f"The URL returned an HTTP error ({response.status_code}).") from exc
+            status = getattr(exc.response, "status_code", None)
+            raise ScrapeError(
+                f"The URL returned an HTTP error ({status or 'unknown'})."
+            ) from exc
         except requests.exceptions.RequestException as exc:
             raise ScrapeError("Failed to fetch the URL.") from exc
+
+        headers = getattr(response, "headers", None)
+        content_type = ""
+        if headers is not None:
+            content_type = headers.get("content-type", "") if hasattr(headers, "get") else ""
+        if content_type and "html" not in content_type.lower() and "xml" not in content_type.lower():
+            raise ScrapeError("The URL does not return HTML content to analyse.")
 
         if len(response.content) > settings.MAX_URL_RESPONSE_SIZE:
             raise ScrapeError("The page content is too large to analyse.")
