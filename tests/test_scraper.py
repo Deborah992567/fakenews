@@ -110,3 +110,57 @@ class TestUrlValidation:
                 mock_get.side_effect = requests.exceptions.ConnectionError("refused")
                 with pytest.raises(ScrapeError, match="Unable to connect"):
                     fetcher.fetch_text("http://example.com")
+
+    def test_rejects_non_html_content_type(self):
+        fetcher = UrlFetcher()
+        with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
+            (None, None, None, None, ("93.184.216.34", 0))
+        ]):
+            with mock.patch("app.scraper.requests.Session.get") as mock_get:
+                response = mock.Mock()
+                response.status_code = 200
+                response.headers = {"content-type": "application/pdf"}
+                response.content = b"%PDF-1.4 fake bytes"
+                mock_get.return_value = response
+                with pytest.raises(ScrapeError, match="HTML content"):
+                    fetcher.fetch_text("http://example.com/doc.pdf")
+
+    def test_extracts_text_from_valid_html(self):
+        fetcher = UrlFetcher()
+        with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
+            (None, None, None, None, ("93.184.216.34", 0))
+        ]):
+            with mock.patch("app.scraper.requests.Session.get") as mock_get:
+                html = b"""
+                <html><head><style>.css{display:none}</style>
+                <script>var x=1;</script></head>
+                <body><nav>Nav links</nav>
+                <article><p>This is a genuine article about politics and economics.</p></article>
+                </body></html>
+                """
+                response = mock.Mock()
+                response.status_code = 200
+                type(response).headers = mock.PropertyMock(
+                    return_value={"content-type": "text/html; charset=utf-8"}
+                )
+                response.content = html
+                mock_get.return_value = response
+                text = fetcher.fetch_text("http://example.com/article")
+                assert "genuine article" in text
+
+    def test_rejects_too_large_response(self):
+        from app.config import settings
+        fetcher = UrlFetcher()
+        with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
+            (None, None, None, None, ("93.184.216.34", 0))
+        ]):
+            with mock.patch("app.scraper.requests.Session.get") as mock_get:
+                response = mock.Mock()
+                response.status_code = 200
+                type(response).headers = mock.PropertyMock(
+                    return_value={"content-type": "text/html"}
+                )
+                response.content = b"a" * (settings.MAX_URL_RESPONSE_SIZE + 10)
+                mock_get.return_value = response
+                with pytest.raises(ScrapeError, match="too large"):
+                    fetcher.fetch_text("http://example.com/big")
