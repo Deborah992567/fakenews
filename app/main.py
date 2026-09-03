@@ -8,13 +8,12 @@ and URL endpoints.
 
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
@@ -73,6 +72,14 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @application.exception_handler(Exception)
+    def unhandled_exception(request: Request, exc: Exception):
+        """Return a clean, stack-trace-free 500 response for any unexpected error."""
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "An internal error occurred. Please try again."},
+        )
 
     # Serve the static frontend.
     if FRONTEND_DIR.is_dir():
