@@ -8,6 +8,7 @@ and URL endpoints.
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -26,6 +27,8 @@ from app.schemas import (
     UrlRequest,
 )
 
+logger = logging.getLogger("fakenews")
+
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 
@@ -43,14 +46,21 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         # Load the model/vectorizer once during startup and store in state.
+        logger.info(
+            "Loading model from %s and vectorizer from %s",
+            settings.model_file,
+            settings.vectorizer_file,
+        )
         service = ModelService(settings.model_file, settings.vectorizer_file)
         try:
             service.load()
         except ModelLoadError as exc:
             # Do not silently continue; the app is unusable for predictions.
+            logger.error("Model load failed: %s", exc)
             state.model = None
             raise RuntimeError(str(exc)) from exc
         state.model = service
+        logger.info("Model and vectorizer loaded successfully.")
         yield
         state.model = None
 
