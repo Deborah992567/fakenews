@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import tensorflow as tf
 
 from app import preprocessing
 from app.config import settings
@@ -80,6 +79,8 @@ class ModelService:
                 f"Model file not found at {self.model_file}. "
                 "Place the trained Keras model there (or set MODEL_PATH)."
             )
+        import tensorflow as tf
+
         try:
             loaded = tf.keras.models.load_model(self.model_file, compile=False)
         except Exception as exc:  # noqa: BLE001 - surface any keras load failure
@@ -159,6 +160,8 @@ class ModelService:
             return []
 
         try:
+            import tensorflow as tf
+
             feature_names = self._feature_names()
             input_tensor = tf.convert_to_tensor(vector.astype("float32"))
             with tf.GradientTape() as tape:
