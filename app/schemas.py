@@ -1,0 +1,79 @@
+"""Pydantic request/response schemas for the Fake News Detector API."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+Verdict = Literal["real", "fake", "uncertain"]  # noqa: F841 - re-exported for docs
+
+
+class PredictRequest(BaseModel):
+    """Request payload for analysing raw article text."""
+
+    news: str = Field(
+        ...,
+        description="The article text to analyse.",
+        max_length=20_000,
+    )
+
+    @field_validator("news")
+    @classmethod
+    def validate_news(cls, value: str) -> str:
+        if value is None:
+            raise ValueError("News text must contain enough content to analyze.")
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("News text must contain enough content to analyze.")
+        # Reject near-empty input (fewer than ~10 meaningful characters).
+        if len(cleaned) < 10:
+            raise ValueError("News text must contain enough content to analyze.")
+        return value
+
+
+class UrlRequest(BaseModel):
+    """Request payload for analysing an article located at a URL."""
+
+    url: str = Field(..., description="The article URL to fetch and analyse",
+                     max_length=2048)
+
+
+class ExplanationItem(BaseModel):
+    """A single word's influence on a prediction."""
+
+    word: str
+    impact: float
+    direction: Literal["real", "fake"]
+
+
+class Explanation(BaseModel):
+    """Explainability payload for a prediction."""
+
+    top_influential_words: list[ExplanationItem]
+
+
+class PredictResponse(BaseModel):
+    """Response returned by /predict and /predict-url."""
+
+    label: Literal["real", "fake", "uncertain"]
+    confidence: float
+    probability_real: float
+    probability_fake: float
+    explanation: Explanation | None = None
+    source_type: Literal["text", "url"] = "text"
+    source: str | None = None
+
+
+class HealthResponse(BaseModel):
+    """Response returned by GET /health."""
+
+    status: Literal["ok"]
+    model_loaded: bool
+    vectorizer_loaded: bool
+
+
+class ErrorResponse(BaseModel):
+    """Generic structured error returned when analysis fails."""
+
+    detail: str
