@@ -11,11 +11,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load values from a local .env file if one exists. Existing environment
-# variables take precedence over the .env file.
 load_dotenv()
 
-# Base directory of the project (directory that contains this file's parent).
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -44,32 +41,25 @@ def _env_float(name: str, default: float) -> float:
 
 
 class Settings:
-    """Typed access to application settings."""
+    """Typed access to application settings.
 
-    # Server
+    All values are resolved at import time.  If a ``.env`` file exists in the
+    project root its contents are loaded first; existing environment variables
+    always win.
+    """
+
     HOST: str = _env_str("HOST", "0.0.0.0")
     PORT: int = _env_int("PORT", 8000)
-
-    # Model / vectorizer
     MODEL_PATH: str = _env_str("MODEL_PATH", "my_model.h5")
     VECTORIZER_PATH: str = _env_str("VECTORIZER_PATH", "countvectorizer.pkl")
-
-    # Prediction behaviour
     UNCERTAINTY_THRESHOLD: float = _env_float("UNCERTAINTY_THRESHOLD", 0.10)
-    MAX_INPUT_LENGTH: int = _env_int("MAX_INPUT_LENGTH", 20000)
-
-    # URL analysis
+    MAX_INPUT_LENGTH: int = _env_int("MAX_INPUT_LENGTH", 20_000)
     MAX_URL_RESPONSE_SIZE: int = _env_int("MAX_URL_RESPONSE_SIZE", 1_000_000)
     REQUEST_TIMEOUT: float = _env_float("REQUEST_TIMEOUT", 10)
     MAX_REDIRECTS: int = _env_int("MAX_REDIRECTS", 5)
-
-    # CORS
     CORS_ORIGINS: str = _env_str("CORS_ORIGINS", "*")
-
-    # How many explainability features to return.
     TOP_FEATURES: int = _env_int("TOP_FEATURES", 10)
 
-    # Path resolution helpers
     @property
     def model_file(self) -> Path:
         path = Path(self.MODEL_PATH)
