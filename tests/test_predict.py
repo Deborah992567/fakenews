@@ -100,7 +100,11 @@ def _install_fake_service(model_prob=0.9):
 
 @pytest.fixture(autouse=True)
 def _setup_and_teardown():
-    """Ensure a clean state for every test."""
+    """Ensure a clean state for every test.
+
+    We avoid running the application's lifespan (which would load the real
+    TensorFlow model); tests install a mock service on ``state.model`` instead.
+    """
     state.model = None
     yield
     state.model = None
@@ -108,6 +112,8 @@ def _setup_and_teardown():
 
 @pytest.fixture
 def client():
+    # Do not enter the context manager so the lifespan (real model load) is
+    # not triggered; the tests install a mock ModelService on the shared state.
     return TestClient(app)
 
 
