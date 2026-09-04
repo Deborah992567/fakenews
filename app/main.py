@@ -116,6 +116,14 @@ def create_app() -> FastAPI:
             vectorizer_loaded=bool(state.model and state.model.vectorizer_is_loaded),
         )
 
+    @application.get("/info")
+    def info():
+        """Return application version and configuration summary."""
+        return {
+            "version": "2.0.0",
+            "settings": settings.summary(),
+        }
+
     def _require_model() -> ModelService:
         if state.model is None or not state.model.is_loaded:
             raise HTTPException(
