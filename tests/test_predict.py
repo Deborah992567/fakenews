@@ -211,6 +211,42 @@ class TestPredictResponseSchema:
         body = resp.json()
         assert body["label"] in ("real", "fake", "uncertain")
 
+    def test_probabilities_sum_to_100(self, client):
+        _install_fake_service(model_prob=0.87)
+        resp = client.post("/predict", json={"news": "The economy grew strongly this quarter across regions."})
+        body = resp.json()
+        total = body["probability_real"] + body["probability_fake"]
+        assert abs(total - 100.0) < 0.02
+
+    def test_source_type_is_text_for_predict(self, client):
+        _install_fake_service()
+        resp = client.post("/predict", json={"news": "This is an ordinary news article about something real."})
+        body = resp.json()
+        assert body["source_type"] == "text"
+
+    def test_explanation_is_present(self, client):
+        from app.model import Prediction, ExplanationItem
+        _install_fake_service()
+        state.model.predict = mock.MagicMock(
+            return_value=Prediction(
+                probability_real=0.9,
+                probability_fake=0.1,
+                label="real",
+                confidence=90.0,
+                explanation=[
+                    ExplanationItem(word="govern", impact=1.2, direction="real"),
+                    ExplanationItem(word="claim", impact=0.8, direction="fake"),
+                ],
+            )
+        )
+        resp = client.post("/predict", json={"news": "Some article about politics and government news today."})
+        body = resp.json()
+        words = body["explanation"]["top_influential_words"]
+        assert len(words) == 2
+        first = words[0]
+        assert set(first) == {"word", "impact", "direction"}
+        assert first["direction"] in ("real", "fake")
+
 
 class TestUncertainty:
     def test_uncertain_when_probabilities_close(self, client):
