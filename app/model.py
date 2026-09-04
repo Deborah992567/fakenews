@@ -132,6 +132,16 @@ class ModelService:
     def predict(self, raw_text: str) -> Prediction:
         """Run the full pipeline for raw text and return a Prediction."""
         cleaned = preprocessing.clean_single_text(raw_text)
+        if not cleaned:
+            # Nothing meaningful remained after preprocessing (e.g. all
+            # stopwords). There is no signal, so report uncertainty.
+            return Prediction(
+                probability_real=0.5,
+                probability_fake=0.5,
+                label="uncertain",
+                confidence=50.0,
+                explanation=[],
+            )
         prob_real = self._probability_real(cleaned)
         prob_fake = 1.0 - prob_real
         label, confidence = self._verdict(prob_real, prob_fake)

@@ -4,6 +4,9 @@ The verdict logic does not require TensorFlow, so it is tested directly on a
 ModelService instance (which only needs file paths for construction).
 """
 
+from unittest import mock
+
+from app import preprocessing
 from app.model import ModelService
 
 
@@ -56,3 +59,14 @@ class TestVerdict:
         service = _service(tmp_path)
         label, _ = service._verdict(0.50, 0.50)
         assert label == "uncertain"
+
+
+class TestPredictRobustness:
+    def test_empty_cleaned_text_returns_uncertain(self, tmp_path):
+        service = _service(tmp_path)
+        with mock.patch.object(preprocessing, "clean_single_text", return_value=""):
+            prediction = service.predict("the and of")
+        assert prediction.label == "uncertain"
+        assert prediction.probability_real == 0.5
+        assert prediction.probability_fake == 0.5
+        assert prediction.explanation == []
