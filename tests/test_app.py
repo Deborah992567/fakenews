@@ -61,3 +61,10 @@ class TestPredictLimits:
         payload = {"news": "a" * 25_000}
         resp = client.post("/predict", json=payload)
         assert resp.status_code == 422
+
+
+class TestCors:
+    def test_health_response_has_cors_headers(self, client):
+        resp = client.get("/health", headers={"Origin": "http://localhost:3000"})
+        # Default config uses "*" so the ACAO header should be returned.
+        assert "access-control-allow-origin" in resp.headers
