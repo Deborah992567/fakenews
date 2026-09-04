@@ -137,8 +137,9 @@ file). See `.env.example` for a full template:
 
 | Variable                 | Default         | Description                                        |
 | ------------------------ | --------------- | -------------------------------------------------- |
-| `HOST`                   | `0.0.0.0`       | Bind host for the server.                          |
-| `PORT`                   | `8000`          | Port for the server.                               |
+| `HOST`                 | `0.0.0.0`       | Bind host for the server.                          |
+| `PORT`                 | `8000`          | Port for the server.                               |
+| `LOG_LEVEL`            | `INFO`          | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 | `MODEL_PATH`             | `my_model.h5`   | Path to the trained model.                         |
 | `VECTORIZER_PATH`        | `countvectorizer.pkl` | Path to the vectorizer.                    |
 | `UNCERTAINTY_THRESHOLD`  | `0.10`          | Distance from 50% below which a verdict is uncertain. |
