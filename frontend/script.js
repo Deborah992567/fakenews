@@ -29,6 +29,7 @@
     liveRegion: document.getElementById("live-region"),
     resultSkeleton: document.getElementById("result-skeleton"),
     resultContent: document.getElementById("result-content"),
+    processTime: document.getElementById("process-time"),
   };
 
   let activeTab = "text";
@@ -118,6 +119,7 @@
     clearError();
     hideResult();
     showSkeleton();
+    const startTime = performance.now();
 
     const endpoint = activeTab === "text" ? "/predict" : "/predict-url";
 
@@ -146,6 +148,8 @@
       }
 
       const result = await response.json();
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+      result._elapsed = elapsed;
       renderResult(result);
       saveHistory(result);
       renderHistory();
@@ -215,6 +219,9 @@
     elements.confidence.textContent = `${result.confidence}%`;
     elements.probReal.textContent = `${result.probability_real}%`;
     elements.probFake.textContent = `${result.probability_fake}%`;
+    if (result._elapsed) {
+      elements.processTime.textContent = `${result._elapsed}s`;
+    }
 
     renderExplanation(result.explanation);
     elements.liveRegion.textContent =

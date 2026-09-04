@@ -260,6 +260,10 @@ body {
   text-align: center;
 }
 
+.metric-wide {
+  grid-column: span 2;
+}
+
 .verdict-label,
 .metric-label {
   display: block;
