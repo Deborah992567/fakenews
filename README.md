@@ -163,6 +163,12 @@ cp .env.example .env
 python main.py
 ```
 
+Or using the Makefile:
+
+```bash
+make run
+```
+
 Then open <http://localhost:8000/> in a browser.
 
 ---
