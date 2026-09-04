@@ -157,6 +157,55 @@ class TestUrlRequestValidation:
         # If the model is not loaded we get 503; otherwise scraping may run.
         assert resp.status_code in (503, 200, 422)
 
+
+class TestRedirectGuard:
+    def test_blocks_redirect_to_private_network(self):
+        fetcher = UrlFetcher()
+        first = mock.Mock()
+        first.status_code = 302
+        first.is_redirect = True
+        first.is_permanent_redirect = False
+        type(first).headers = mock.PropertyMock(return_value={"location": "http://10.0.0.5/admin"})
+        first.close.return_value = None
+        second = mock.Mock()
+
+        def fake_get(url, **kwargs):
+            if "10.0.0.5" in url:
+                # would be reached only if validation is bypassed
+                return second
+            return first
+
+        with mock.patch("app.scraper.socket.getaddrinfo") as mock_dns:
+            def fake_getaddrinfo(host, *args):
+                if host == "example.com":
+                    return [(None, None, None, None, ("93.184.216.34", 0))]
+                if host.startswith("10."):
+                    # public-ish resolution shouldn't matter; the IP literal is used
+                    return [(None, None, None, None, ("10.0.0.5", 0))]
+                raise LookupError
+
+            mock_dns.side_effect = fake_getaddrinfo
+            with mock.patch("app.scraper.requests.Session.get", side_effect=fake_get):
+                with pytest.raises(ScrapeError, match="private network"):
+                    fetcher.fetch_text("http://example.com/start")
+
+    def test_blocks_excessive_redirects(self):
+        fetcher = UrlFetcher()
+        redirect = mock.Mock()
+        redirect.status_code = 301
+        redirect.is_redirect = True
+        redirect.is_permanent_redirect = True
+        type(redirect).headers = mock.PropertyMock(return_value={"location": "http://example.com/x"})
+        redirect.close.return_value = None
+
+        with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
+            (None, None, None, None, ("93.184.216.34", 0))
+        ]):
+            with mock.patch("app.scraper.requests.Session.get", return_value=redirect) as mock_get:
+                with pytest.raises(ScrapeError, match="Too many redirects"):
+                    fetcher.fetch_text("http://example.com/start")
+                assert mock_get.call_count >= fetcher.session.max_redirects + 1
+
     def test_rejects_non_html_content_type(self):
         fetcher = UrlFetcher()
         with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
@@ -165,6 +214,8 @@ class TestUrlRequestValidation:
             with mock.patch("app.scraper.requests.Session.get") as mock_get:
                 response = mock.Mock()
                 response.status_code = 200
+                response.is_redirect = False
+                response.is_permanent_redirect = False
                 response.headers = {"content-type": "application/pdf"}
                 response.content = b"%PDF-1.4 fake bytes"
                 mock_get.return_value = response
@@ -186,6 +237,8 @@ class TestUrlRequestValidation:
                 """
                 response = mock.Mock()
                 response.status_code = 200
+                response.is_redirect = False
+                response.is_permanent_redirect = False
                 type(response).headers = mock.PropertyMock(
                     return_value={"content-type": "text/html; charset=utf-8"}
                 )
@@ -203,6 +256,8 @@ class TestUrlRequestValidation:
             with mock.patch("app.scraper.requests.Session.get") as mock_get:
                 response = mock.Mock()
                 response.status_code = 200
+                response.is_redirect = False
+                response.is_permanent_redirect = False
                 type(response).headers = mock.PropertyMock(
                     return_value={"content-type": "text/html"}
                 )
