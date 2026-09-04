@@ -77,5 +77,19 @@ class Settings:
             return ["*"]
         return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
+    def summary(self) -> dict[str, object]:
+        """Return a serialisable summary of effective settings (no secrets)."""
+        return {
+            "host": self.HOST,
+            "port": self.PORT,
+            "model_path": str(self.model_file),
+            "vectorizer_path": str(self.vectorizer_file),
+            "uncertainty_threshold": self.UNCERTAINTY_THRESHOLD,
+            "max_input_length": self.MAX_INPUT_LENGTH,
+            "top_features": self.TOP_FEATURES,
+            "request_timeout": self.REQUEST_TIMEOUT,
+            "max_redirects": self.MAX_REDIRECTS,
+        }
+
 
 settings = Settings()
