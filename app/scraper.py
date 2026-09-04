@@ -68,25 +68,47 @@ class UrlFetcher:
         text = soup.get_text(separator=" ")
         return " ".join(text.split())
 
+    def _fetch_with_redirect_guard(self, url: str) -> requests.Response:
+        """Fetch a URL following redirects manually, validating each hop.
+
+        This prevents an SSRF attack that could smuggle the client onto a
+        private network via a redirect from a public URL.
+        """
+        current = url
+        for _ in range(settings.MAX_REDIRECTS + 1):
+            self._validate_url(current)
+            response = self.session.get(
+                current,
+                timeout=settings.REQUEST_TIMEOUT,
+                headers={"User-Agent": "FakeNewsDetector/1.0"},
+                allow_redirects=False,
+                stream=True,
+            )
+            response.raise_for_status()
+            if response.is_redirect or response.is_permanent_redirect:
+                location = response.headers.get("location")
+                if not location:
+                    raise ScrapeError("The URL returned an invalid redirect.")
+                current = requests.compat.urljoin(current, location)
+                response.close()
+                continue
+            return response
+        raise ScrapeError("Too many redirects while fetching the URL.")
+
     def fetch_text(self, url: str) -> str:
         """Validate, fetch and extract readable article text from ``url``."""
         self._validate_url(url)
 
         try:
-            response = self.session.get(
-                url,
-                timeout=settings.REQUEST_TIMEOUT,
-                headers={"User-Agent": "FakeNewsDetector/1.0"},
-                allow_redirects=True,
-                stream=True,
-            )
-            response.raise_for_status()
-        except requests.exceptions.TooManyRedirects as exc:
-            raise ScrapeError("Too many redirects while fetching the URL.") from exc
+            response = self._fetch_with_redirect_guard(url)
+        except ScrapeError:
+            raise
         except requests.exceptions.Timeout as exc:
             raise ScrapeError("The request timed out while fetching the URL.") from exc
         except requests.exceptions.ConnectionError as exc:
             raise ScrapeError("Unable to connect to the URL.") from exc
+        except requests.exceptions.TooManyRedirects as exc:
+            raise ScrapeError("Too many redirects while fetching the URL.") from exc
         except requests.exceptions.HTTPError as exc:
             status = getattr(exc.response, "status_code", None)
             raise ScrapeError(
