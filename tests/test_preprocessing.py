@@ -1,7 +1,5 @@
 """Tests for text preprocessing."""
 
-import pytest
-
 from app import preprocessing
 
 

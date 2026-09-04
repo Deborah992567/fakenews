@@ -4,8 +4,6 @@ The verdict logic does not require TensorFlow, so it is tested directly on a
 ModelService instance (which only needs file paths for construction).
 """
 
-import pytest
-
 from app.model import ModelService
 
 

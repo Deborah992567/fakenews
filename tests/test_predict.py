@@ -59,7 +59,7 @@ class _FakeModel:
 
 def _install_fake_service(model_prob=0.9):
     """Install a mock ModelService on app.state for testing."""
-    from app.model import ModelService, Prediction, ExplanationItem
+    from app.model import ModelService, Prediction
 
     fake_vectorizer = _FakeVectorizer()
     fake_model = _FakeModel(model_prob)
