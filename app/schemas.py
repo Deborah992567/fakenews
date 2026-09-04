@@ -10,6 +10,17 @@ from app.config import settings
 
 Verdict = Literal["real", "fake", "uncertain"]  # noqa: F841 - re-exported for docs
 
+__all__ = [
+    "Verdict",
+    "PredictRequest",
+    "UrlRequest",
+    "ExplanationItem",
+    "Explanation",
+    "PredictResponse",
+    "HealthResponse",
+    "ErrorResponse",
+]
+
 
 class PredictRequest(BaseModel):
     """Request payload for analysing raw article text."""
