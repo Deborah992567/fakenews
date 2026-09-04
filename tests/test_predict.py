@@ -66,6 +66,8 @@ def _install_fake_service(model_prob=0.9):
 
     service = mock.Mock(spec=ModelService)
     service.is_loaded = True
+    service.model_is_loaded = True
+    service.vectorizer_is_loaded = True
     service._model = fake_model
     service._vectorizer = fake_vectorizer
 
