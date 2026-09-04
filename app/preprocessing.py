@@ -15,22 +15,27 @@ from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
 
 _NON_ALPHA = re.compile(r"[^a-zA-Z]")
-_STOPWORDS_LOCK: stopwords | None = None
+_STOPWORDS_CACHE: set[str] | None = None
 
 
 def _get_stopwords() -> set[str]:
     """Return the cached set of stopwords with ``not`` removed."""
-    global _STOPWORDS_LOCK
-    if _STOPWORDS_LOCK is not None:
-        return _STOPWORDS_LOCK
+    global _STOPWORDS_CACHE
+    if _STOPWORDS_CACHE is not None:
+        return _STOPWORDS_CACHE
     try:
         words = set(stopwords.words("english"))
     except LookupError:
         nltk.download("stopwords", quiet=True)
         words = set(stopwords.words("english"))
     words.discard("not")
-    _STOPWORDS_LOCK = words
-    return words
+    _STOPWORDS_CACHE = words
+    return _STOPWORDS_CACHE
+
+
+def ensure_stopwords_available() -> None:
+    """Pre-download NLTK stopwords if they are not yet present."""
+    _get_stopwords()
 
 
 def clean_single_text(text: str) -> str:
