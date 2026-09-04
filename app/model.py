@@ -130,10 +130,17 @@ class ModelService:
     # Prediction
     # ------------------------------------------------------------------ #
     def _probability_real(self, cleaned_text: str) -> float:
-        """Return the raw probability that the text is real."""
+        """Return the raw probability that the text is real.
+
+        Returns 0.5 (uncertain) if the cleaned text produces an empty vector,
+        so the model is never fed degenerate input.
+        """
+        if not cleaned_text.strip():
+            return 0.5
         vector = self._vectorizer.transform([cleaned_text]).toarray()
+        if np.count_nonzero(vector) == 0:
+            return 0.5
         raw = float(self._model.predict(vector, verbose=0)[0][0])
-        # Guard against a single scalar output being returned as-is.
         if isinstance(raw, (list, tuple, np.ndarray)):
             raw = float(raw[0])
         return float(np.clip(raw, 0.0, 1.0))
