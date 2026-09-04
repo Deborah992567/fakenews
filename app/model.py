@@ -215,7 +215,10 @@ class ModelService:
             )
 
         contributions.sort(key=lambda item: item.impact, reverse=True)
-        return contributions[: settings.TOP_FEATURES]
+        # Clamp the configured limit to a sensible range to avoid excessive
+        # response sizes or degenerate zero/negative configurations.
+        limit = max(1, min(settings.TOP_FEATURES, 50))
+        return contributions[:limit]
 
     def _feature_names(self) -> list[str]:
         """Return the vectorizer's feature names (works across sklearn versions)."""
