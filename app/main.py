@@ -64,6 +64,8 @@ def create_app() -> FastAPI:
             raise RuntimeError(str(exc)) from exc
         state.model = service
         logger.info("Model and vectorizer loaded successfully.")
+        logger.info("Uncertainty threshold: %s", settings.UNCERTAINTY_THRESHOLD)
+        logger.info("Top features: %s", settings.TOP_FEATURES)
         yield
         state.model = None
 
