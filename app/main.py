@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.model import ModelLoadError, ModelService
+from app.preprocessing import ensure_stopwords_available
 from app.scraper import ScrapeError, fetch_article_text
 from app.schemas import (
     HealthResponse,
@@ -45,6 +46,8 @@ state = AppState()
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # Ensure NLTK data is available before any predictions.
+        ensure_stopwords_available()
         # Load the model/vectorizer once during startup and store in state.
         logger.info(
             "Loading model from %s and vectorizer from %s",
