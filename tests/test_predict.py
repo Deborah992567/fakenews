@@ -141,6 +141,21 @@ class TestHealth:
         body = resp.json()
         assert body["model_loaded"] is False
 
+    def test_reports_separate_loaded_flags(self, client):
+        from app.model import ModelService
+        fake_vectorizer = _FakeVectorizer()
+        fake_model = _FakeModel(0.9)
+        service = mock.Mock(spec=ModelService)
+        service.is_loaded = False
+        service.model_is_loaded = True
+        service.vectorizer_is_loaded = False
+        service._model = fake_model
+        service._vectorizer = fake_vectorizer
+        state.model = service
+        body = client.get("/health").json()
+        assert body["model_loaded"] is True
+        assert body["vectorizer_loaded"] is False
+
 
 class TestPredictValidation:
     def test_valid_article_returns_200(self, client):
