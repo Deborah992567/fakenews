@@ -151,8 +151,9 @@
       }
 
       const result = await response.json();
-      const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-      result._elapsed = elapsed;
+      const elapsedMs = Math.round(performance.now() - startTime);
+      result._elapsed = (elapsedMs / 1000).toFixed(2);
+      result._processing_time_ms = elapsedMs;
       renderResult(result);
       saveHistory(result);
       renderHistory();
