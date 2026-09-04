@@ -226,6 +226,12 @@ body {
   font-size: 1.2rem;
 }
 
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .source-badge {
   background: var(--muted-bg);
   color: var(--muted-text);

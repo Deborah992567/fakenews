@@ -31,6 +31,7 @@
     resultSkeleton: document.getElementById("result-skeleton"),
     resultContent: document.getElementById("result-content"),
     processTime: document.getElementById("process-time"),
+    copyResultBtn: document.getElementById("copy-result-btn"),
   };
 
   let activeTab = "text";
@@ -63,6 +64,7 @@
   elements.analyzeBtn.addEventListener("click", () => analyze());
   elements.clearBtn.addEventListener("click", clearAll);
   elements.clearHistoryBtn.addEventListener("click", clearHistory);
+  elements.copyResultBtn.addEventListener("click", copyResult);
 
   // Submit the URL field with the Enter key.
   elements.newsUrl.addEventListener("keydown", (event) => {
@@ -417,6 +419,15 @@
     hideResult();
     hideSkeleton();
     elements.news.focus();
+  }
+
+  function copyResult() {
+    const verdict = elements.verdict.textContent;
+    const conf = elements.confidence.textContent;
+    const pr = elements.probReal.textContent;
+    const pf = elements.probFake.textContent;
+    const text = `Verdict: ${verdict} | Confidence: ${conf} | Real: ${pr} | Fake: ${pf}`;
+    navigator.clipboard.writeText(text).catch(() => {});
   }
 
   renderHistory();
