@@ -3,6 +3,7 @@
 (() => {
   const HISTORY_KEY = "fakenews.history";
   const HISTORY_LIMIT = 20;
+  const MAX_TITLE_LENGTH = 80;
 
   const elements = {
     tabButtons: document.querySelectorAll(".tab"),
