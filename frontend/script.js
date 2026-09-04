@@ -397,6 +397,7 @@
     elements.newsUrl.value = "";
     clearError();
     hideResult();
+    hideSkeleton();
     elements.news.focus();
   }
 
