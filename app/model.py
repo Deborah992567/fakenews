@@ -109,6 +109,14 @@ class ModelService:
     def is_loaded(self) -> bool:
         return self._model is not None and self._vectorizer is not None
 
+    @property
+    def model_is_loaded(self) -> bool:
+        return self._model is not None
+
+    @property
+    def vectorizer_is_loaded(self) -> bool:
+        return self._vectorizer is not None
+
     # ------------------------------------------------------------------ #
     # Prediction
     # ------------------------------------------------------------------ #

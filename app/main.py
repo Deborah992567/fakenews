@@ -107,8 +107,8 @@ def create_app() -> FastAPI:
     def health() -> HealthResponse:
         return HealthResponse(
             status="ok",
-            model_loaded=bool(state.model and state.model.is_loaded),
-            vectorizer_loaded=bool(state.model and state.model.is_loaded),
+            model_loaded=bool(state.model and state.model.model_is_loaded),
+            vectorizer_loaded=bool(state.model and state.model.vectorizer_is_loaded),
         )
 
     def _require_model() -> ModelService:
