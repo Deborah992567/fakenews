@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app, state
 from app import preprocessing
+from app.scraper import ScrapeError
 
 
 class _FakeVectorizer:
@@ -268,3 +269,46 @@ class TestUncertainty:
         body = resp.json()
         # max(0.55, 0.45) = 0.55; 0.55 - 0.5 = 0.05 < 0.10
         assert body["label"] == "uncertain"
+
+
+class TestPredictUrlEndpoint:
+    def test_predict_url_uses_shared_pipeline(self, client):
+        """Mocked scraping feeds text through the same prediction pipeline."""
+        from app.model import Prediction
+        _install_fake_service()
+        state.model.predict = mock.MagicMock(
+            return_value=Prediction(
+                probability_real=0.9,
+                probability_fake=0.1,
+                label="real",
+                confidence=90.0,
+                explanation=[],
+            )
+        )
+        with mock.patch("app.main.fetch_article_text", return_value="Article text from the url") as fetcher:
+            resp = client.post(
+                "/predict-url", json={"url": "http://example.com/article"}
+            )
+        assert resp.status_code == 200
+        fetcher.assert_called_once_with("http://example.com/article")
+        body = resp.json()
+        assert body["source_type"] == "url"
+        assert body["source"] == "http://example.com/article"
+        assert body["label"] == "real"
+
+    def test_predict_url_returns_422_on_scrape_failure(self, client):
+        _install_fake_service()
+        with mock.patch(
+            "app.main.fetch_article_text",
+            side_effect=ScrapeError("The page content is too large to analyse."),
+        ):
+            resp = client.post(
+                "/predict-url", json={"url": "http://example.com/big" }
+            )
+        assert resp.status_code == 422
+        assert "too large" in resp.json()["detail"]
+
+    def test_predict_url_requires_loaded_model(self, client):
+        state.model = None
+        resp = client.post("/predict-url", json={"url": "http://example.com/a"})
+        assert resp.status_code == 503
