@@ -535,3 +535,21 @@ body {
     animation-duration: 2s;
   }
 }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2e3a;
+    --text: #e4e6ea;
+    --text-muted: #8b90a0;
+    --primary: #5b9cf6;
+    --primary-hover: #4a8ae5;
+    --success-bg: #122a1c;
+    --success-text: #54d683;
+    --danger-bg: #2a1212;
+    --danger-text: #f26b6b;
+    --muted-bg: #1e2028;
+    --muted-text: #a0a5b4;
+  }
+}
