@@ -126,6 +126,13 @@ class ModelService:
     def vectorizer_is_loaded(self) -> bool:
         return self._vectorizer is not None
 
+    def __repr__(self) -> str:
+        status = "loaded" if self.is_loaded else "not loaded"
+        return (
+            f"ModelService(model={self.model_file.name}, "
+            f"vectorizer={self.vectorizer_file.name}, status={status})"
+        )
+
     # ------------------------------------------------------------------ #
     # Prediction
     # ------------------------------------------------------------------ #
