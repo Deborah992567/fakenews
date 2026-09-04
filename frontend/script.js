@@ -284,6 +284,14 @@
     elements.historySection.classList.toggle("hidden", history.length === 0);
     elements.historyList.innerHTML = "";
 
+    if (history.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "empty-history";
+      empty.textContent = "No previous analyses yet.";
+      elements.historyList.appendChild(empty);
+      return;
+    }
+
     history.forEach((entry) => {
       const li = document.createElement("li");
       li.className = "history-item";
