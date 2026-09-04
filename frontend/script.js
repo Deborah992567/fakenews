@@ -184,6 +184,7 @@
 
   function setLoading() {
     elements.analyzeBtn.disabled = true;
+    elements.analyzeBtn.classList.add("loading");
     elements.analyzeBtn.setAttribute("aria-busy", "true");
     elements.btnLabel.textContent = "Analysing…";
     elements.spinner.classList.remove("hidden");
@@ -191,6 +192,7 @@
 
   function clearLoading() {
     elements.analyzeBtn.disabled = false;
+    elements.analyzeBtn.classList.remove("loading");
     elements.analyzeBtn.removeAttribute("aria-busy");
     elements.btnLabel.textContent = "Analyse";
     elements.spinner.classList.add("hidden");
