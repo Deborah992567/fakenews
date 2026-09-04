@@ -194,7 +194,14 @@ def create_app() -> FastAPI:
     @application.post("/predict", response_model=PredictResponse)
     def predict(req: PredictRequest) -> PredictResponse:
         service = _require_model()
-        return _to_response(service, req.news, "text")
+        text = req.news.strip()
+        if len(text) > settings.MAX_INPUT_LENGTH:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Input text too long ({len(text)} chars). "
+                       f"Maximum is {settings.MAX_INPUT_LENGTH} characters.",
+            )
+        return _to_response(service, text, "text")
 
     @application.post("/predict-url", response_model=PredictResponse)
     def predict_url(req: UrlRequest) -> PredictResponse:
