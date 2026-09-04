@@ -4,7 +4,6 @@ These tests use a lightweight in-memory model/vectorizer so they do not
 depend on the real trained network or external data.
 """
 
-import os
 from unittest import mock
 
 import numpy as np
