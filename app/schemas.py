@@ -40,6 +40,17 @@ class UrlRequest(BaseModel):
     url: str = Field(..., description="The article URL to fetch and analyse",
                      max_length=2048)
 
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        if value is None or not value.strip():
+            raise ValueError("A URL must be provided.")
+        stripped = value.strip()
+        lowered = stripped.lower()
+        if not (lowered.startswith("http://") or lowered.startswith("https://")):
+            raise ValueError("Only http and https URLs are supported.")
+        return stripped
+
 
 class ExplanationItem(BaseModel):
     """A single word's influence on a prediction."""
