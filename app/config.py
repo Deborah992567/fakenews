@@ -91,5 +91,24 @@ class Settings:
             "max_redirects": self.MAX_REDIRECTS,
         }
 
+    def validate(self) -> list[str]:
+        """Return a list of warning strings for obviously wrong config values."""
+        warnings: list[str] = []
+        if not 0.0 < self.UNCERTAINTY_THRESHOLD < 1.0:
+            warnings.append(
+                f"UNCERTAINTY_THRESHOLD={self.UNCERTAINTY_THRESHOLD} is outside (0,1); "
+                "uncertain predictions may never trigger."
+            )
+        if self.MAX_INPUT_LENGTH < 100:
+            warnings.append(
+                f"MAX_INPUT_LENGTH={self.MAX_INPUT_LENGTH} is very short; "
+                "most articles will be rejected."
+            )
+        if self.PORT < 1 or self.PORT > 65535:
+            warnings.append(f"PORT={self.PORT} is outside valid range 1-65535.")
+        if self.TOP_FEATURES < 1:
+            warnings.append(f"TOP_FEATURES={self.TOP_FEATURES} must be >= 1.")
+        return warnings
+
 
 settings = Settings()

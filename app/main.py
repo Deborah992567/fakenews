@@ -48,6 +48,9 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         # Ensure NLTK data is available before any predictions.
         ensure_stopwords_available()
+        # Log configuration warnings before model load.
+        for warning in settings.validate():
+            logger.warning("Config: %s", warning)
         # Load the model/vectorizer once during startup and store in state.
         logger.info(
             "Loading model from %s and vectorizer from %s",
