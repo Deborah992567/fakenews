@@ -128,6 +128,22 @@ def create_app() -> FastAPI:
             "settings": settings.summary(),
         }
 
+    @application.get("/history")
+    def get_history(limit: int = 20):
+        """Return recent predictions made via the API."""
+        entries = prediction_log.recent(limit=limit)
+        return [
+            {
+                "label": e.label,
+                "confidence": e.confidence,
+                "probability_real": e.probability_real,
+                "probability_fake": e.probability_fake,
+                "source_type": e.source_type,
+                "input_preview": e.input_preview,
+            }
+            for e in entries
+        ]
+
     def _require_model() -> ModelService:
         if state.model is None or not state.model.is_loaded:
             raise HTTPException(
