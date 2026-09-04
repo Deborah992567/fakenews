@@ -55,6 +55,18 @@
         <div id="live-region" class="sr-only" aria-live="polite"></div>
 
         <section id="result-section" class="card result-card hidden">
+          <div id="result-skeleton" class="skeleton hidden" aria-hidden="true">
+            <div class="skeleton-line w60"></div>
+            <div class="skeleton-grid">
+              <div class="skeleton-block"></div>
+              <div class="skeleton-block"></div>
+              <div class="skeleton-block"></div>
+              <div class="skeleton-block"></div>
+            </div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line w80"></div>
+          </div>
+          <div id="result-content">
           <div class="result-header">
             <h2 class="result-title">Result</h2>
             <span class="source-badge" id="source-badge"></span>
@@ -88,6 +100,7 @@
               are not proof the article is real or fake.
             </p>
             <div id="explanation-list" class="explanation-grid"></div>
+          </div>
           </div>
         </section>
 

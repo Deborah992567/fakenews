@@ -26,6 +26,8 @@
     historyList: document.getElementById("history-list"),
     clearHistoryBtn: document.getElementById("clear-history-btn"),
     liveRegion: document.getElementById("live-region"),
+    resultSkeleton: document.getElementById("result-skeleton"),
+    resultContent: document.getElementById("result-content"),
   };
 
   let activeTab = "text";
@@ -106,6 +108,7 @@
     setLoading();
     clearError();
     hideResult();
+    showSkeleton();
 
     const endpoint = activeTab === "text" ? "/predict" : "/predict-url";
 
@@ -138,6 +141,7 @@
       saveHistory(result);
       renderHistory();
     } catch (err) {
+      hideResult();
       if (err instanceof TypeError && err.message === "Failed to fetch") {
         showError(
           "Unable to connect to the detector server. Please make sure the backend is running.",
@@ -147,7 +151,19 @@
       }
     } finally {
       clearLoading();
+      hideSkeleton();
     }
+  }
+
+  function showSkeleton() {
+    elements.resultSection.classList.remove("hidden");
+    elements.resultSkeleton.classList.remove("hidden");
+    elements.resultContent.classList.add("hidden");
+  }
+
+  function hideSkeleton() {
+    elements.resultSkeleton.classList.add("hidden");
+    elements.resultContent.classList.remove("hidden");
   }
 
   function setLoading() {
