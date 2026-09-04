@@ -4,6 +4,15 @@ Loads the TensorFlow/Keras model and the scikit-learn vectorizer once at
 application startup, then exposes a single ``predict`` entry point used by
 both the pasted-text and URL endpoints.
 
+Model architecture (from ``fake_news.ipynb``):
+  Input  → Dense(12, relu) → Dense(12, relu) → Dense(12, relu) → Dense(1, sigmoid)
+
+The sigmoid output represents P(real).  Label mapping:
+  - true_df['label'] = 1 → REAL
+  - fake_df['label'] = 0 → FAKE
+
+Input is a CountVectorizer bag-of-words (nltk PorterStemmer tokens).
+
 Input attribution (explainability) is computed using gradient-based saliency:
 we measure the gradient of the model's real-probability output with respect to
 each active (present) word in the input. A positive attribution means the word
