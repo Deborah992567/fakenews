@@ -294,6 +294,7 @@
       confidence: result.confidence,
       probability_real: result.probability_real,
       probability_fake: result.probability_fake,
+      processing_time_ms: result._processing_time_ms || null,
     };
     history.unshift(entry);
     if (history.length > HISTORY_LIMIT) {
@@ -333,10 +334,15 @@
 
       const subtitle = document.createElement("div");
       subtitle.className = "history-subtitle";
+      const timeInfo =
+        entry.processing_time_ms != null
+          ? ` · ${entry.processing_time_ms}ms`
+          : "";
       subtitle.textContent =
         formatDate(entry.timestamp) +
         " · " +
-        (entry.source_type === "url" ? "URL" : "text");
+        (entry.source_type === "url" ? "URL" : "text") +
+        timeInfo;
 
       meta.append(title, subtitle);
 
