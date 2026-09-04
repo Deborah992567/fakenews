@@ -28,6 +28,8 @@ _PRIVATE_PREFIXES = ("10.", "127.", "169.254.", "172.", "192.168.")
 class UrlFetcher:
     """Fetches and extracts article text from a validated URL."""
 
+    USER_AGENT = "FakeNewsDetector/2.0 (+https://github.com/Deborah992567/fakenews)"
+
     def __init__(self) -> None:
         self.session = requests.Session()
         self.session.max_redirects = settings.MAX_REDIRECTS
@@ -80,7 +82,7 @@ class UrlFetcher:
             response = self.session.get(
                 current,
                 timeout=settings.REQUEST_TIMEOUT,
-                headers={"User-Agent": "FakeNewsDetector/1.0"},
+                headers={"User-Agent": self.USER_AGENT},
                 allow_redirects=False,
                 stream=True,
             )
