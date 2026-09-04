@@ -16,6 +16,7 @@
     error: document.getElementById("error-message"),
     resultSection: document.getElementById("result-section"),
     sourceBadge: document.getElementById("source-badge"),
+    sourceUrl: document.getElementById("source-url"),
     verdict: document.getElementById("verdict"),
     verdictHint: document.getElementById("verdict-hint"),
     confidence: document.getElementById("confidence"),
@@ -188,6 +189,10 @@
     elements.resultSection.classList.remove("hidden");
     elements.sourceBadge.textContent =
       sourceType === "url" ? "URL source" : "Pasted text";
+    elements.sourceUrl.classList.toggle("hidden", !result.source);
+    if (result.source) {
+      elements.sourceUrl.textContent = `Source: ${result.source}`;
+    }
 
     const verdictEl = elements.verdict;
     verdictEl.textContent =

@@ -234,6 +234,17 @@ body {
   font-size: 0.8rem;
 }
 
+.source-url {
+  margin: -4px 0 12px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.source-url.hidden {
+  display: none;
+}
+
 .result-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
