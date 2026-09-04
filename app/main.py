@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.model import ModelLoadError, ModelService
+from app.prediction_log import PredictionEntry, prediction_log
 from app.preprocessing import ensure_stopwords_available
 from app.scraper import ScrapeError, fetch_article_text
 from app.schemas import (
@@ -142,7 +143,7 @@ def create_app() -> FastAPI:
         source: str | None = None,
     ) -> PredictResponse:
         prediction = service.predict(raw_text)
-        return PredictResponse(
+        response = PredictResponse(
             label=prediction.label,
             confidence=prediction.confidence,
             probability_real=round(prediction.probability_real * 100.0, 2),
@@ -162,6 +163,17 @@ def create_app() -> FastAPI:
             source_type=source_type,
             source=source,
         )
+        prediction_log.append(
+            PredictionEntry(
+                label=prediction.label,
+                confidence=prediction.confidence,
+                probability_real=prediction.probability_real,
+                probability_fake=prediction.probability_fake,
+                source_type=source_type,
+                input_preview=raw_text[:100],
+            )
+        )
+        return response
 
     @application.post("/predict", response_model=PredictResponse)
     def predict(req: PredictRequest) -> PredictResponse:
