@@ -119,7 +119,12 @@ def create_app() -> FastAPI:
             )
         return state.model
 
-    def _to_response(service: ModelService, raw_text: str, source_type: str) -> PredictResponse:
+    def _to_response(
+        service: ModelService,
+        raw_text: str,
+        source_type: str,
+        source: str | None = None,
+    ) -> PredictResponse:
         prediction = service.predict(raw_text)
         return PredictResponse(
             label=prediction.label,
@@ -139,6 +144,7 @@ def create_app() -> FastAPI:
             if prediction.explanation
             else None,
             source_type=source_type,
+            source=source,
         )
 
     @application.post("/predict", response_model=PredictResponse)
@@ -153,7 +159,7 @@ def create_app() -> FastAPI:
             article_text = fetch_article_text(req.url)
         except ScrapeError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return _to_response(service, article_text, "url")
+        return _to_response(service, article_text, "url", source=req.url)
 
     return application
 
