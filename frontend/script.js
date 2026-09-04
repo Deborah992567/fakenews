@@ -25,6 +25,7 @@
     historySection: document.getElementById("history-section"),
     historyList: document.getElementById("history-list"),
     clearHistoryBtn: document.getElementById("clear-history-btn"),
+    liveRegion: document.getElementById("live-region"),
   };
 
   let activeTab = "text";
@@ -57,6 +58,22 @@
   elements.analyzeBtn.addEventListener("click", () => analyze());
   elements.clearBtn.addEventListener("click", clearAll);
   elements.clearHistoryBtn.addEventListener("click", clearHistory);
+
+  // Submit the URL field with the Enter key.
+  elements.newsUrl.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      analyze();
+    }
+  });
+
+  // Ctrl/Cmd + Enter submits the pasted textarea.
+  elements.news.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      analyze();
+    }
+  });
 
   function getPayload() {
     if (activeTab === "text") {
@@ -169,6 +186,8 @@
     elements.probFake.textContent = `${result.probability_fake}%`;
 
     renderExplanation(result.explanation);
+    elements.liveRegion.textContent =
+      `Verdict: ${label}. Confidence ${result.confidence} percent.`;
     window.scrollTo({ top: elements.resultSection.offsetTop - 20, behavior: "smooth" });
   }
 
