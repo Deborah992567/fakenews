@@ -68,3 +68,10 @@ class TestCors:
         resp = client.get("/health", headers={"Origin": "http://localhost:3000"})
         # Default config uses "*" so the ACAO header should be returned.
         assert "access-control-allow-origin" in resp.headers
+
+
+class TestExceptionHandling:
+    def test_health_always_ok(self, client):
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
