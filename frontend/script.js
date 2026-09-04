@@ -90,9 +90,17 @@
       if (!payload.news || !payload.news.trim()) {
         return "Please enter an article to analyze.";
       }
+      if (payload.news.trim().length < 10) {
+        return "Please enter enough text to analyze (at least 10 characters).";
+      }
     } else {
       if (!payload.url) {
         return "Please enter a URL to analyze.";
+      }
+      try {
+        new URL(payload.url);
+      } catch (_) {
+        return "Please enter a valid URL (e.g. https://example.com).";
       }
     }
     return null;
