@@ -179,6 +179,16 @@ class TestPredictValidation:
         resp = client.post("/predict", json={"news": "short"})
         assert resp.status_code == 422
 
+    def test_null_news_returns_422(self, client):
+        resp = client.post("/predict", json={"news": None})
+        assert resp.status_code == 422
+
+    def test_validation_detail_message(self, client):
+        resp = client.post("/predict", json={"news": ""})
+        assert resp.status_code == 422
+        detail = resp.json()["detail"][0]
+        assert "News text must contain enough content to analyze." in detail["msg"]
+
     def test_no_model_returns_503(self, client):
         resp = client.post("/predict", json={"news": "This has enough content for validation."})
         assert resp.status_code == 503
