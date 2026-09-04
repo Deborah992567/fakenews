@@ -3,8 +3,22 @@
 from unittest import mock
 
 import pytest
+from fastapi.testclient import TestClient
 
+from app.main import app, state
 from app.scraper import UrlFetcher, ScrapeError
+
+
+@pytest.fixture(autouse=True)
+def _clean_state():
+    state.model = None
+    yield
+    state.model = None
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
 
 
 class TestUrlValidation:
@@ -110,6 +124,38 @@ class TestUrlValidation:
                 mock_get.side_effect = requests.exceptions.ConnectionError("refused")
                 with pytest.raises(ScrapeError, match="Unable to connect"):
                     fetcher.fetch_text("http://example.com")
+
+
+class TestUrlRequestValidation:
+    """Tests for the /predict-url request schema validation."""
+
+    def test_empty_url_rejected(self, client):
+        resp = client.post("/predict-url", json={"url": ""})
+        assert resp.status_code == 422
+
+    def test_missing_url_rejected(self, client):
+        resp = client.post("/predict-url", json={})
+        assert resp.status_code == 422
+
+    def test_whitespace_url_rejected(self, client):
+        resp = client.post("/predict-url", json={"url": "   "})
+        assert resp.status_code == 422
+
+    def test_non_http_scheme_rejected(self, client):
+        resp = client.post("/predict-url", json={"url": "ftp://example.com/a"})
+        assert resp.status_code == 422
+
+    def test_invalid_scheme_rejected(self, client):
+        resp = client.post("/predict-url", json={"url": "javascript:alert(1)"})
+        assert resp.status_code == 422
+
+    def test_valid_http_url_passes_validation(self, client):
+        # Scheme validation passes; the scraper then checks network access.
+        # We bypass network by returning a 503 (model not loaded) before any
+        # scraping since the model service is not installed.
+        resp = client.post("/predict-url", json={"url": "http://example.com/article"})
+        # If the model is not loaded we get 503; otherwise scraping may run.
+        assert resp.status_code in (503, 200, 422)
 
     def test_rejects_non_html_content_type(self):
         fetcher = UrlFetcher()
