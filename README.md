@@ -347,3 +347,31 @@ mocked — no real network or news site is contacted).
   with `python main.py`.
 - **Docker build is slow** – the TensorFlow wheel is large (~250 MB); this is
   expected on the first build.
+
+---
+
+## Known limitations
+
+- **TensorFlow is a large dependency (~250 MB wheel)**.  On slow or
+  metered networks the initial `pip install -r requirements.txt` may
+  take several minutes or time out.  Retry with a longer timeout
+  (`pip install --timeout 600 …`) or install behind a fast network.
+- **The existing model is a Keras Sequential neural network** with four
+  Dense layers and a sigmoid output.  It was trained on a balanced
+  real/fake news dataset and expects bag-of-words CountVectorizer input
+  with NLTK Porter-stemmed tokens.  The vectorizer and model are
+  tightly coupled; replacing one without the other will produce
+  incorrect results.
+- **Explainability is gradient-based**.  Because the model is a neural
+  network (not a linear classifier), feature-importance values are
+  computed via `tf.GradientTape` rather than model coefficients.  These
+  are *model influences*, not factual proof that a word makes an
+  article real or fake.
+- **Prediction history is client-side only** (browser `localStorage`).
+  It is not shared across devices or browsers.
+- **URL analysis depends on external sites** being reachable and
+  returning parseable HTML.  Some sites block scrapers; results
+  for those URLs will return an error message.
+- **Uncertainty handling** uses a configurable threshold
+  (`UNCERTAINTY_THRESHOLD`).  The default value (0.10) may not be
+  appropriate for all use-cases.  Tune it for your domain.
