@@ -41,6 +41,9 @@ npm-debug.log*
 # NLTK data downloaded at runtime
 nltk_data/
 
+# Raw dataset files (True.csv / Fake.csv), re-acquired from ISOT
+data/
+
 # Build / distribution
 dist/
 build/
