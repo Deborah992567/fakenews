@@ -87,6 +87,7 @@ class PredictResponse(BaseModel):
     explanation: Explanation | None = None
     source_type: Literal["text", "url"] = "text"
     source: str | None = None
+    page_title: str | None = None
 
 
 class HealthResponse(BaseModel):

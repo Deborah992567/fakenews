@@ -5,6 +5,21 @@
   const HISTORY_LIMIT = 20;
   const MAX_TITLE_LENGTH = 80;
 
+  const FRIENDLY_ERRORS = {
+    invalid_url: "We couldn't find an article at this URL. Check the link and try again.",
+    http_error: "We couldn't find an article at this URL. Check the link and try again.",
+    dns_failure: "We couldn't find an article at this URL. Check the link and try again.",
+    not_html: "We couldn't find an article at this URL. Check the link and try again.",
+    blocked_domain: "This URL type is not allowed for analysis.",
+    blocked_network: "This URL points to a private network and is blocked.",
+    timeout: "The article could not be retrieved right now. Please try again.",
+    connection_error: "The article could not be retrieved right now. Please try again.",
+    too_many_redirects: "The article could not be retrieved right now. Please try again.",
+    oversize: "The article could not be retrieved right now. Please try again.",
+    not_article: "This page doesn't appear to contain a single news article.",
+    extraction_failed: "We retrieved the page, but couldn't identify the article content.",
+  };
+
   const elements = {
     tabButtons: document.querySelectorAll(".tab"),
     panels: document.querySelectorAll(".tab-panel"),
@@ -18,6 +33,7 @@
     resultSection: document.getElementById("result-section"),
     sourceBadge: document.getElementById("source-badge"),
     sourceUrl: document.getElementById("source-url"),
+    articleTitle: document.getElementById("article-title"),
     verdict: document.getElementById("verdict"),
     verdictHint: document.getElementById("verdict-hint"),
     confidence: document.getElementById("confidence"),
@@ -143,6 +159,8 @@
             } else {
               message = body.detail.map((d) => d.msg).join(", ");
             }
+          } else if (body && body.category && FRIENDLY_ERRORS[body.category]) {
+            message = FRIENDLY_ERRORS[body.category];
           }
         } catch (_) {
           // keep the default message if the response is not JSON
@@ -212,6 +230,11 @@
     elements.sourceUrl.classList.toggle("hidden", !result.source);
     if (result.source) {
       elements.sourceUrl.textContent = `Source: ${result.source}`;
+    }
+    elements.articleTitle.classList.toggle("hidden", !result.page_title);
+    if (result.page_title) {
+      elements.articleTitle.textContent = result.page_title.slice(0, MAX_TITLE_LENGTH);
+      elements.articleTitle.title = result.page_title;
     }
 
     const verdictEl = elements.verdict;
@@ -374,6 +397,7 @@
     const label = entry.label;
     elements.sourceBadge.textContent =
       entry.source_type === "url" ? "URL source" : "Pasted text";
+    elements.articleTitle.classList.add("hidden");
 
     const verdictEl = elements.verdict;
     verdictEl.textContent =

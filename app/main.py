@@ -21,7 +21,7 @@ from app.config import settings
 from app.model import ModelLoadError, ModelService
 from app.prediction_log import PredictionEntry, prediction_log
 from app.preprocessing import ensure_stopwords_available
-from app.scraper import ScrapeError, fetch_article_text
+from app.scraper import ScrapeError, fetch_article
 from app.schemas import (
     HealthResponse,
     PredictRequest,
@@ -100,6 +100,26 @@ def create_app() -> FastAPI:
             content={"detail": "An internal error occurred. Please try again."},
         )
 
+    @application.exception_handler(ScrapeError)
+    def scrape_error(request: Request, exc: ScrapeError):
+        """Map URL-analysis failures to a friendly 422 with a stable category.
+
+        The technical ``detail`` and full redirect trace are only logged at
+        DEBUG level and never exposed to the client.
+        """
+        logger.debug(
+            "ScrapeError category=%s %s final_url=%s redirects=%s detail=%s",
+            exc.category,
+            exc,
+            exc.final_url,
+            list(exc.redirects),
+            exc.detail,
+        )
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(exc), "category": exc.category},
+        )
+
     # Serve the static frontend.
     if FRONTEND_DIR.is_dir():
         application.mount(
@@ -157,6 +177,7 @@ def create_app() -> FastAPI:
         raw_text: str,
         source_type: str,
         source: str | None = None,
+        page_title: str | None = None,
     ) -> PredictResponse:
         prediction = service.predict(raw_text)
         response = PredictResponse(
@@ -178,6 +199,7 @@ def create_app() -> FastAPI:
             else None,
             source_type=source_type,
             source=source,
+            page_title=page_title,
         )
         prediction_log.append(
             PredictionEntry(
@@ -206,11 +228,19 @@ def create_app() -> FastAPI:
     @application.post("/predict-url", response_model=PredictResponse)
     def predict_url(req: UrlRequest) -> PredictResponse:
         service = _require_model()
-        try:
-            article_text = fetch_article_text(req.url)
-        except ScrapeError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return _to_response(service, article_text, "url", source=req.url)
+        extract = fetch_article(req.url)
+        if not extract.text.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="We retrieved the page, but couldn't identify the article content.",
+            )
+        return _to_response(
+            service,
+            extract.text,
+            "url",
+            source=req.url,
+            page_title=extract.title or None,
+        )
 
     return application
 

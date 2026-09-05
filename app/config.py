@@ -56,6 +56,7 @@ class Settings:
     MAX_INPUT_LENGTH: int = _env_int("MAX_INPUT_LENGTH", 20_000)
     MAX_URL_RESPONSE_SIZE: int = _env_int("MAX_URL_RESPONSE_SIZE", 1_000_000)
     REQUEST_TIMEOUT: float = _env_float("REQUEST_TIMEOUT", 10)
+    CONNECT_TIMEOUT: float = _env_float("CONNECT_TIMEOUT", 5)
     MAX_REDIRECTS: int = _env_int("MAX_REDIRECTS", 5)
     CORS_ORIGINS: str = _env_str("CORS_ORIGINS", "*")
     TOP_FEATURES: int = _env_int("TOP_FEATURES", 10)
@@ -88,6 +89,7 @@ class Settings:
             "max_input_length": self.MAX_INPUT_LENGTH,
             "top_features": self.TOP_FEATURES,
             "request_timeout": self.REQUEST_TIMEOUT,
+            "connect_timeout": self.CONNECT_TIMEOUT,
             "max_redirects": self.MAX_REDIRECTS,
         }
 
