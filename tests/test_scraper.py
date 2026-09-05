@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app, state
-from app.scraper import UrlFetcher, ScrapeError
+from app.scraper import ExtractResult, UrlFetcher, ScrapeError
 
 
 @pytest.fixture(autouse=True)
@@ -21,15 +21,19 @@ def client():
     return TestClient(app)
 
 
+def _dns_public(host, *args):
+    return [(None, None, None, None, ("93.184.216.34", 0))]
+
+
 class TestUrlValidation:
     def test_rejects_ftp(self):
         fetcher = UrlFetcher()
-        with pytest.raises(ScrapeError, match="Only http and https"):
+        with pytest.raises(ScrapeError, match="couldn't find an article"):
             fetcher._validate_url("ftp://example.com/article")
 
     def test_rejects_file_scheme(self):
         fetcher = UrlFetcher()
-        with pytest.raises(ScrapeError, match="Only http and https"):
+        with pytest.raises(ScrapeError, match="couldn't find an article"):
             fetcher._validate_url("file:///etc/passwd")
 
     def test_rejects_localhost(self):
@@ -44,7 +48,7 @@ class TestUrlValidation:
 
     def test_rejects_no_hostname(self):
         fetcher = UrlFetcher()
-        with pytest.raises(ScrapeError, match="missing a valid hostname"):
+        with pytest.raises(ScrapeError, match="couldn't find an article"):
             fetcher._validate_url("http:///")
 
     def test_rejects_empty_string(self):
@@ -89,41 +93,35 @@ class TestUrlValidation:
         fetcher = UrlFetcher()
         import socket
         with mock.patch("app.scraper.socket.getaddrinfo", side_effect=socket.gaierror("no such host")):
-            with pytest.raises(ScrapeError, match="Unable to resolve"):
+            with pytest.raises(ScrapeError, match="couldn't find an article"):
                 fetcher._validate_url("http://definitely-not-a-real-host-12345.invalid")
 
     def test_rejects_too_many_redirects(self):
         fetcher = UrlFetcher()
-        with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
-            (None, None, None, None, ("93.184.216.34", 0))
-        ]):
+        with mock.patch("app.scraper.socket.getaddrinfo", side_effect=_dns_public):
             with mock.patch("app.scraper.requests.Session.get") as mock_get:
                 import requests
                 mock_get.side_effect = requests.exceptions.TooManyRedirects()
-                with pytest.raises(ScrapeError, match="Too many redirects"):
-                    fetcher.fetch_text("http://example.com/redirect-loop")
+                with pytest.raises(ScrapeError, match="could not be retrieved"):
+                    fetcher.fetch_article("http://example.com/redirect-loop")
 
     def test_rejects_timeout(self):
         fetcher = UrlFetcher()
-        with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
-            (None, None, None, None, ("93.184.216.34", 0))
-        ]):
+        with mock.patch("app.scraper.socket.getaddrinfo", side_effect=_dns_public):
             with mock.patch("app.scraper.requests.Session.get") as mock_get:
                 import requests
                 mock_get.side_effect = requests.exceptions.Timeout()
-                with pytest.raises(ScrapeError, match="timed out"):
-                    fetcher.fetch_text("http://example.com/slow")
+                with pytest.raises(ScrapeError, match="could not be retrieved"):
+                    fetcher.fetch_article("http://example.com/slow")
 
     def test_rejects_connection_error(self):
         fetcher = UrlFetcher()
-        with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
-            (None, None, None, None, ("93.184.216.34", 0))
-        ]):
+        with mock.patch("app.scraper.socket.getaddrinfo", side_effect=_dns_public):
             with mock.patch("app.scraper.requests.Session.get") as mock_get:
                 import requests
                 mock_get.side_effect = requests.exceptions.ConnectionError("refused")
-                with pytest.raises(ScrapeError, match="Unable to connect"):
-                    fetcher.fetch_text("http://example.com")
+                with pytest.raises(ScrapeError, match="could not be retrieved"):
+                    fetcher.fetch_article("http://example.com")
 
 
 class TestUrlRequestValidation:
@@ -187,7 +185,7 @@ class TestRedirectGuard:
             mock_dns.side_effect = fake_getaddrinfo
             with mock.patch("app.scraper.requests.Session.get", side_effect=fake_get):
                 with pytest.raises(ScrapeError, match="private network"):
-                    fetcher.fetch_text("http://example.com/start")
+                    fetcher.fetch_article("http://example.com/start")
 
     def test_blocks_excessive_redirects(self):
         fetcher = UrlFetcher()
@@ -198,19 +196,15 @@ class TestRedirectGuard:
         type(redirect).headers = mock.PropertyMock(return_value={"location": "http://example.com/x"})
         redirect.close.return_value = None
 
-        with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
-            (None, None, None, None, ("93.184.216.34", 0))
-        ]):
+        with mock.patch("app.scraper.socket.getaddrinfo", side_effect=_dns_public):
             with mock.patch("app.scraper.requests.Session.get", return_value=redirect) as mock_get:
-                with pytest.raises(ScrapeError, match="Too many redirects"):
-                    fetcher.fetch_text("http://example.com/start")
+                with pytest.raises(ScrapeError, match="could not be retrieved"):
+                    fetcher.fetch_article("http://example.com/start")
                 assert mock_get.call_count >= fetcher.session.max_redirects + 1
 
     def test_rejects_non_html_content_type(self):
         fetcher = UrlFetcher()
-        with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
-            (None, None, None, None, ("93.184.216.34", 0))
-        ]):
+        with mock.patch("app.scraper.socket.getaddrinfo", side_effect=_dns_public):
             with mock.patch("app.scraper.requests.Session.get") as mock_get:
                 response = mock.Mock()
                 response.status_code = 200
@@ -219,21 +213,24 @@ class TestRedirectGuard:
                 response.headers = {"content-type": "application/pdf"}
                 response.content = b"%PDF-1.4 fake bytes"
                 mock_get.return_value = response
-                with pytest.raises(ScrapeError, match="HTML content"):
-                    fetcher.fetch_text("http://example.com/doc.pdf")
+                with pytest.raises(ScrapeError, match="couldn't find an article"):
+                    fetcher.fetch_article("http://example.com/doc.pdf")
 
     def test_extracts_text_from_valid_html(self):
         fetcher = UrlFetcher()
-        with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
-            (None, None, None, None, ("93.184.216.34", 0))
-        ]):
+        with mock.patch("app.scraper.socket.getaddrinfo", side_effect=_dns_public):
             with mock.patch("app.scraper.requests.Session.get") as mock_get:
                 html = b"""
                 <html><head><style>.css{display:none}</style>
-                <script>var x=1;</script></head>
+                <script>var x=1;</script><title>Politics and Economics Today</title></head>
                 <body><nav>Nav links</nav>
-                <article><p>This is a genuine article about politics and economics.</p></article>
-                </body></html>
+                <article><h1>Politics and Economics Today</h1>
+                <p>This is a genuine article about politics and economics. Economists and
+                analysts report that the new trade policy will affect markets across the
+                region over the next several years.</p>
+                <p>Officials say the policy is designed to stabilise growth while keeping
+                inflation low, and point to recent figures as evidence of improvement.</p>
+                </article></body></html>
                 """
                 response = mock.Mock()
                 response.status_code = 200
@@ -244,15 +241,16 @@ class TestRedirectGuard:
                 )
                 response.content = html
                 mock_get.return_value = response
-                text = fetcher.fetch_text("http://example.com/article")
-                assert "genuine article" in text
+                result = fetcher.fetch_article("http://example.com/article")
+                assert isinstance(result, ExtractResult)
+                assert "genuine article" in result.text
+                assert result.title == "Politics and Economics Today"
+                assert result.extraction_method == "semantic"
 
     def test_rejects_too_large_response(self):
         from app.config import settings
         fetcher = UrlFetcher()
-        with mock.patch("app.scraper.socket.getaddrinfo", return_value=[
-            (None, None, None, None, ("93.184.216.34", 0))
-        ]):
+        with mock.patch("app.scraper.socket.getaddrinfo", side_effect=_dns_public):
             with mock.patch("app.scraper.requests.Session.get") as mock_get:
                 response = mock.Mock()
                 response.status_code = 200
@@ -263,5 +261,5 @@ class TestRedirectGuard:
                 )
                 response.content = b"a" * (settings.MAX_URL_RESPONSE_SIZE + 10)
                 mock_get.return_value = response
-                with pytest.raises(ScrapeError, match="too large"):
-                    fetcher.fetch_text("http://example.com/big")
+                with pytest.raises(ScrapeError, match="could not be retrieved"):
+                    fetcher.fetch_article("http://example.com/big")

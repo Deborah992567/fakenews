@@ -83,6 +83,52 @@ class TestRealPrediction:
                 assert isinstance(item.impact, float)
                 assert item.direction in ("real", "fake")
 
+    def test_manual_pipeline_matches_service(self):
+        """The service predict() path equals a manual vectorize + model path."""
+        from app import preprocessing
+
+        svc = _load_service()
+        text = (
+            "Officials announced the new hospital wing will open next month after "
+            "delays in construction across the northern region were resolved."
+        )
+        pred = svc.predict(text)
+        cleaned = preprocessing.clean_single_text(text)
+        vector = svc._vectorizer.transform([cleaned]).toarray()
+        raw = float(svc._model.predict(vector, verbose=0)[0][0])
+        raw = float(np.clip(raw, 0.0, 1.0))
+        assert pred.probability_real == pytest.approx(raw, abs=1e-5)
+        assert pred.probability_fake == pytest.approx(1.0 - raw, abs=1e-5)
+
+    def test_label_derived_from_actual_probability(self):
+        """Label must follow the documented threshold rule from P(real)."""
+        svc = _load_service()
+        for text in [
+            "Breaking news on the latest election results in the capital",
+            "A completely normal article about weather and sports today",
+            "Experts announce a major new discovery in medical research",
+        ]:
+            pred = svc.predict(text)
+            label, confidence = svc._verdict(pred.probability_real, pred.probability_fake)
+            assert pred.label == label
+            assert pred.confidence == confidence
+            winner = max(pred.probability_real, pred.probability_fake)
+            assert pred.label in ("real", "fake", "uncertain")
+            assert pred.confidence == round(winner * 100.0, 2)
+
+    def test_prediction_pipeline_is_deterministic(self):
+        """The same input always produces the same output (stability/parity)."""
+        svc = _load_service()
+        text = (
+            "Government announces new economic policy with broad support across "
+            "several regions and industries this quarter."
+        )
+        first = svc.predict(text)
+        second = svc.predict(text)
+        assert first.probability_real == second.probability_real
+        assert first.probability_fake == second.probability_fake
+        assert first.label == second.label
+
 
 class TestRebuildGradients:
     def test_model_has_input_gradients_after_rebuild(self):

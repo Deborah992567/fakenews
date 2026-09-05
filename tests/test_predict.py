@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app, state
 from app import preprocessing
-from app.scraper import ScrapeError
+from app.scraper import ExtractResult, ScrapeError
 
 
 class _FakeVectorizer:
@@ -294,7 +294,14 @@ class TestPredictUrlEndpoint:
                 explanation=[],
             )
         )
-        with mock.patch("app.main.fetch_article_text", return_value="Article text from the url") as fetcher:
+        with mock.patch(
+            "app.main.fetch_article",
+            return_value=ExtractResult(
+                text="Article text from the url",
+                title="Test headline",
+                final_url="http://example.com/article",
+            ),
+        ) as fetcher:
             resp = client.post(
                 "/predict-url", json={"url": "http://example.com/article"}
             )
@@ -304,11 +311,12 @@ class TestPredictUrlEndpoint:
         assert body["source_type"] == "url"
         assert body["source"] == "http://example.com/article"
         assert body["label"] == "real"
+        assert body["page_title"] == "Test headline"
 
     def test_predict_url_returns_422_on_scrape_failure(self, client):
         _install_fake_service()
         with mock.patch(
-            "app.main.fetch_article_text",
+            "app.main.fetch_article",
             side_effect=ScrapeError("The page content is too large to analyse."),
         ):
             resp = client.post(
