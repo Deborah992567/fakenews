@@ -75,6 +75,9 @@ frontend/
 - pip
 
 > TensorFlow does not yet support Python 3.13+, so use a 3.12 environment.
+> The project is verified against **TensorFlow 2.21.0** (pinned in
+> `requirements.txt`).  Do not downgrade the pinned version without
+> re-verifying model loading and gradient explainability.
 
 ---
 
@@ -345,33 +348,73 @@ mocked — no real network or news site is contacted).
   `.env`.
 - **Frontend shows "Unable to connect"** – the backend is not running; start it
   with `python main.py`.
-- **Docker build is slow** – the TensorFlow wheel is large (~250 MB); this is
+- **Docker build is slow** – the TensorFlow wheel is large (~223 MB macOS,
+  ~546 MB Linux); this is
   expected on the first build.
 
 ---
 
 ## Known limitations
 
-- **TensorFlow is a large dependency (~250 MB wheel)**.  On slow or
-  metered networks the initial `pip install -r requirements.txt` may
-  take several minutes or time out.  Retry with a longer timeout
-  (`pip install --timeout 600 …`) or install behind a fast network.
-- **The existing model is a Keras Sequential neural network** with four
-  Dense layers and a sigmoid output.  It was trained on a balanced
-  real/fake news dataset and expects bag-of-words CountVectorizer input
-  with NLTK Porter-stemmed tokens.  The vectorizer and model are
-  tightly coupled; replacing one without the other will produce
-  incorrect results.
+- **TensorFlow is a large dependency**.  The wheel is roughly **223 MB on
+  macOS** and **~546 MB on Linux** (`python:3.12-slim` / amd64).  On slow or
+  metered networks the initial `pip install -r requirements.txt` (or the
+  `docker build`) may take a very long time or time out.  Retry with a longer
+  timeout (`pip install --timeout 600 --retries 10 …`; the `Dockerfile` sets
+  this automatically) or install behind a faster network.
+- **TensorFlow is pinned to `==2.21.0`**.  The pin is required for two
+  reasons: (1) it is the exact version verified against the trained model and
+  explainability pipeline; (2) with a wider version range (e.g.
+  `>=2.16,<2.22`) pip's resolver on the Docker `python:3.12-slim` image enters
+  "exploding backtracking" and fails with `ResolutionImpossible` over the
+  mutually-exclusive `protobuf` constraints of the TensorFlow 2.16–2.21 line.
+  Keep the pin; chang only after re-verifying.
+- **The existing model is a Keras neural network** with four Dense layers
+  (12-relu ×3 → 1-sigmoid) and expects bag-of-words CountVectorizer input
+  with NLTK Porter-stemmed tokens.  The vectorizer and model are tightly
+  coupled; replacing one without the other produces incorrect results.  The
+  vectorizer was pickled with scikit-learn **1.3.2** and loaded with a newer
+  scikit-learn, which emits an `InconsistentVersionWarning`; the
+  `CountVectorizer` remains fully functional (40,000-feature vocabulary
+  verified).
+- **The trained model is strongly biased toward `fake`**.  In practice it
+  returns near-zero P(real) for almost every input — including plausible
+  real-world news articles (verified against the shipped `my_model.h5`).
+  Uncertainty verdicts are therefore rarely produced by this particular model,
+  even though the threshold logic is correct (covered by unit tests).  This is
+  a property of the trained weights, which are preserved as-is; retraining on a
+  better-balanced dataset would be required to address it.
+- **Legacy `.h5` models loaded through Keras 3 can drop input-gradients**.
+  `tf.keras.models.load_model` on a Keras-2-era `.h5` can return
+  `None` gradients w.r.t. the input (breaking gradient saliency) while still
+  producing correct predictions.  The app detects this at startup and
+  reconstructs the identical architecture (same layer config, exact same
+  trained weights) so that gradient-based explainability works.  The rebuilt
+  model produces bit-for-bit identical predictions to the original weights.
 - **Explainability is gradient-based**.  Because the model is a neural
-  network (not a linear classifier), feature-importance values are
-  computed via `tf.GradientTape` rather than model coefficients.  These
-  are *model influences*, not factual proof that a word makes an
-  article real or fake.
-- **Prediction history is client-side only** (browser `localStorage`).
-  It is not shared across devices or browsers.
-- **URL analysis depends on external sites** being reachable and
-  returning parseable HTML.  Some sites block scrapers; results
-  for those URLs will return an error message.
+  network (not a linear classifier), feature-importance values are computed
+  via `tf.GradientTape` rather than model coefficients.  These are *model
+  influences*, not factual proof that a word makes an article real or fake.
+- **Prediction history is client-side only** (browser `localStorage`).  It
+  is not shared across devices or browsers.
+- **URL analysis depends on external sites** being reachable and returning
+  parseable HTML.  Some sites block scrapers; results for those URLs return an
+  error message.
 - **Uncertainty handling** uses a configurable threshold
-  (`UNCERTAINTY_THRESHOLD`).  The default value (0.10) may not be
-  appropriate for all use-cases.  Tune it for your domain.
+  (`UNCERTAINTY_THRESHOLD`).  The default value (0.10) may not be appropriate
+  for all use-cases.  Tune it for your domain.
+
+### Not yet verified in this environment
+
+- **Docker build/run**.  The Docker configuration itself is valid:
+  dependency resolution succeeds on `python:3.12-slim`, and
+  `docker compose config` validates.  However, a full `docker build` could
+  not complete here because downloading the ~546 MB Linux TensorFlow wheel
+  exceeded all practical timeouts on the available network (~0.19 MB/s
+  measured).  Run `docker compose up --build` on a faster network to verify
+  the container end-to-end.
+
+The application itself — TensorFlow import, model load, vectorizer load, real
+predictions, `/health`, `/predict`, `/predict-url`, explainability, frontend
+serving, history, and the automated test suite — has been verified against the
+real trained model on this machine.

@@ -33,6 +33,53 @@ from app import preprocessing
 from app.config import settings
 
 
+def _has_input_gradients(model: Any) -> bool:
+    """Return True if gradients flow from the model output back to its input.
+
+    Some legacy ``.h5`` models loaded through Keras 3 expose weights and
+    produce correct predictions, but silently drop gradient tracking to the
+    input layer (``tape.gradient`` returns ``None``).  Gradient-based saliency
+    needs real input gradients, so detect that condition before relying on it.
+    """
+    import numpy as np
+    import tensorflow as tf
+
+    shape = (1,) + tuple(model.input_shape[1:])
+    probe = tf.Variable(np.zeros(shape, dtype=np.float32))
+    with tf.GradientTape() as tape:
+        output = model(probe, training=False)
+    gradient = tape.gradient(output, probe)
+    return gradient is not None
+
+
+def _rebuild_functional_model(model: Any) -> Any:
+    """Recreate the identical Dense architecture with a fresh Input layer.
+
+    Copies the exact trained weights from ``model`` into a functionally-built
+    network with the same layer configuration (units + activation).  This keeps
+    the trained network bit-for-bit identical while restoring gradient flow to
+    the input, which is required for gradient-based explainability.
+    """
+    import tensorflow as tf
+
+    inputs = tf.keras.Input(shape=tuple(model.input_shape[1:]))
+    layer_x = inputs
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.layers.InputLayer):
+            continue
+        if not isinstance(layer, tf.keras.layers.Dense):
+            # Only the documented Dense architecture can be faithfully rebuilt.
+            return model
+        config = layer.get_config()
+        layer_x = tf.keras.layers.Dense(
+            units=config.get("units"),
+            activation=config.get("activation"),
+        )(layer_x)
+    rebuilt = tf.keras.Model(inputs, layer_x)
+    rebuilt.set_weights(model.get_weights())
+    return rebuilt
+
+
 class ModelLoadError(Exception):
     """Raised when the model or vectorizer cannot be loaded."""
 
@@ -92,10 +139,21 @@ class ModelService:
 
         try:
             loaded = tf.keras.models.load_model(self.model_file, compile=False)
+            if not _has_input_gradients(loaded):
+                # Keras 3 can load legacy H5 weights/predictions fine while
+                # dropping input-gradients. Rebuild the identical architecture
+                # from the loaded weights so saliency actually works.
+                loaded = _rebuild_functional_model(loaded)
         except Exception as exc:  # noqa: BLE001 - surface any keras load failure
             raise ModelLoadError(
                 f"Failed to load the model from {self.model_file}: {exc}"
             ) from exc
+        if not _has_input_gradients(loaded):
+            raise ModelLoadError(
+                "Gradient-based explainability is unavailable because the "
+                f"model at {self.model_file} does not propagate gradients "
+                "to its input."
+            )
         return loaded
 
     def _load_vectorizer(self) -> Any | None:

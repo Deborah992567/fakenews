@@ -17,28 +17,21 @@ from app.config import settings
 from app.preprocessing import clean_single_text
 
 
-def _load_model(path: Path):
-    import tensorflow as tf
+def _load_service(model_path: Path, vectorizer_path: Path):
+    from app.model import ModelService
 
-    print(f"Loading model from {path} ...")
-    model = tf.keras.models.load_model(path, compile=False)
-    print(f"  Model type : {type(model).__name__}")
-    print(f"  Parameters : {model.count_params():,}")
-    print(f"  Input shape: {model.input_shape}")
-    print(f"  Output shape: {model.output_shape}")
-    return model
-
-
-def _load_vectorizer(path: Path):
-    import pickle
-
-    print(f"Loading vectorizer from {path} ...")
-    with path.open("rb") as f:
-        cv = pickle.load(f)
-    vocab_size = len(cv.vocabulary_)
-    print(f"  Type       : {type(cv).__name__}")
-    print(f"  Vocab size : {vocab_size}")
-    return cv
+    print(f"Loading model from {model_path} ...")
+    print(f"Loading vectorizer from {vectorizer_path} ...")
+    service = ModelService(model_path, vectorizer_path).load()
+    model = service._model
+    vectorizer = service._vectorizer
+    print(f"  Model type     : {type(model).__name__}")
+    print(f"  Parameters     : {model.count_params():,}")
+    print(f"  Input shape    : {model.input_shape}")
+    print(f"  Output shape   : {model.output_shape}")
+    print(f"  Vectorizer type: {type(vectorizer).__name__}")
+    print(f"  Vocab size     : {len(vectorizer.vocabulary_)}")
+    return model, vectorizer
 
 
 def _check_compatibility(model, vectorizer):
@@ -102,8 +95,7 @@ def main() -> int:
         return 1
 
     try:
-        model = _load_model(model_path)
-        vectorizer = _load_vectorizer(vectorizer_path)
+        model, vectorizer = _load_service(model_path, vectorizer_path)
         compatible = _check_compatibility(model, vectorizer)
         if not compatible:
             return 1
