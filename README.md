@@ -14,8 +14,13 @@ HTML/CSS/JS** frontend.
 ## Features
 
 - **Paste-text analysis** – analyse raw article text.
-- **URL analysis** – fetch a page, extract its article content and analyse it
-  through the same pipeline (with SSRF protection, timeouts and size limits).
+- **URL analysis** – fetch a page, extract its dominant article (JSON-LD
+  `NewsArticle`/`Article` first, semantic HTML fallback), and analyse it
+  through the same pipeline as pasted text.  Backed by robust validation
+  (HTTP/HTTPS only, SSRF/private-network guard, connect+read timeouts, response
+  size cap, redirect limit with per-hop re-validation).  Non-article pages
+  (homepages, category/tag listings, author pages, etc.) are rejected with a
+  clear, friendly message instead of being silently misclassified.
 - **Verdict with confidence** – `real`, `fake` or `uncertain`.
 - **Uncertainty handling** – configurable threshold; near 50/50 predictions are
   reported as `uncertain` rather than forced into a confident answer.
@@ -148,7 +153,8 @@ file). See `.env.example` for a full template:
 | `UNCERTAINTY_THRESHOLD`  | `0.10`          | Distance from 50% below which a verdict is uncertain. |
 | `MAX_INPUT_LENGTH`       | `20000`         | Maximum characters accepted for pasted text.       |
 | `MAX_URL_RESPONSE_SIZE`  | `1000000`       | Maximum bytes accepted from a fetched URL.         |
-| `REQUEST_TIMEOUT`        | `10`            | URL fetch timeout in seconds.                      |
+| `REQUEST_TIMEOUT`        | `10`            | URL read timeout in seconds.                       |
+| `CONNECT_TIMEOUT`        | `5`             | URL connection (TCP/TLS) timeout in seconds.       |
 | `MAX_REDIRECTS`          | `5`             | Maximum redirects while fetching a URL.            |
 | `CORS_ORIGINS`           | `*`             | Comma-separated allowed origins.                   |
 
@@ -266,10 +272,58 @@ Missing, empty, whitespace-only or near-empty `news` returns HTTP `422`:
 }
 ```
 
-The backend validates the URL (HTTP/HTTPS only, blocks private/localhost
-networks to prevent SSRF), fetches the page with a timeout and size limit,
-extracts the main article text, and runs it through the same prediction
-pipeline. It returns the same schema as `/predict`.
+**Fetching** — each URL is treated as untrusted input:
+
+- HTTP/HTTPS schemes only; `localhost`/`.local` domains are blocked.
+- DNS resolution is checked against private, loopback, link-local and reserved
+  ranges before the request is made (SSRF guard). Redirects are followed
+  manually, with **each hop re-validated**, so a public URL cannot smuggle the
+  client onto a private network. HTTP→HTTPS upgrades (and vice versa) are
+  allowed; a maximum of `MAX_REDIRECTS` hops is enforced.
+- A realistic browser `User-Agent` is sent, with separate connect
+  (`CONNECT_TIMEOUT`) and read (`REQUEST_TIMEOUT`) timeouts, and a response
+  size cap (`MAX_URL_RESPONSE_SIZE`) enforced while streaming.
+- At `DEBUG` log level the fetcher records every hop, the HTTP status and
+  content-type, the final URL, any redirect chain, and the extraction outcome.
+
+**Extraction** — the dominant article is identified in order of preference:
+
+1. **JSON-LD structured data** — `NewsArticle`/`Article` (and related types),
+   preferring `articleBody`, with `headline` used as the title.
+2. **Semantic HTML fallback** — the most relevant `<article>`/`<main>`/
+   `[role="main"]` container (or best-scoring `div`/`section`), taking its
+   paragraph text.
+
+Pages that are **not a single news article** — site roots, category/tag list
+pages, author/about/contact pages, or content too short to be an article — are
+rejected with `This page doesn't appear to contain a single news article.`
+A successfully retrieved page whose article content cannot be identified is
+reported instead of being silently classified.
+
+**Errors** — failures return HTTP `422` with a user-friendly `detail` and a
+stable `category` (e.g. `http_error`, `dns_failure`, `timeout`,
+`not_article`, `extraction_failed`, `blocked_network`).  For example:
+
+```json
+{
+  "detail": "We couldn't find an article at this URL. Check the link and try again.",
+  "category": "http_error"
+}
+```
+
+The technical reason and redirect trace are only logged server-side at
+`DEBUG` level.
+
+**Result** — on success the extracted text is run through the exact same
+prediction pipeline as pasted text, so manual and URL results are comparable
+byte-for-byte for the same text (verified by tests). The response includes
+everything `/predict` returns plus an optional `page_title` with the detected
+article headline.
+
+> **Extraction ≠ fact-checking.** The URL endpoint extracts article text and
+> runs the same model as pasted text. It does **not** verify a page's
+> publisher, date, or claims. A low-confidence extraction (blocked scrapers,
+> JavaScript-only pages, paywalls) fails with an error rather than guessing.
 
 ```bash
 curl -X POST http://localhost:8000/predict-url \
@@ -303,9 +357,14 @@ scores.
 pytest
 ```
 
-The test suite covers preprocessing, `/predict` validation and schema,
-uncertainty handling, `/health`, and URL validation (with external HTTP
-mocked — no real network or news site is contacted).
+The test suite (currently **144 tests**) covers preprocessing, `/predict`
+validation and schema, uncertainty handling, `/health`, URL validation and the
+full URL analysis pipeline — JSON-LD and semantic extraction, redirects,
+HTTP→HTTPS upgrades, SSRF/private-network guards, error categories and
+user-facing messages, non-article rejection, the `/predict-url` response
+contract, manual-vs-URL pipeline parity, and real-model integration (parity
+with a manual vectorize+predict path, label-from-probability consistency).
+External HTTP is mocked — no real network or news site is contacted.
 
 ---
 
@@ -398,8 +457,10 @@ mocked — no real network or news site is contacted).
 - **Prediction history is client-side only** (browser `localStorage`).  It
   is not shared across devices or browsers.
 - **URL analysis depends on external sites** being reachable and returning
-  parseable HTML.  Some sites block scrapers; results for those URLs return an
-  error message.
+  parseable HTML.  Some sites block scrapers, serve JavaScript-only content,
+  or gate articles behind paywalls; results for those URLs return an
+  explicit error instead of a guess.  The detector extracts article text — it
+  is **not** a fact-checker and does not assess publisher or claim accuracy.
 - **Uncertainty handling** uses a configurable threshold
   (`UNCERTAINTY_THRESHOLD`).  The default value (0.10) may not be appropriate
   for all use-cases.  Tune it for your domain.
