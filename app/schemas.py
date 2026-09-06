@@ -91,11 +91,24 @@ class PredictResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """Response returned by GET /health."""
+    """Response returned by GET /health.
+
+    ``model_loaded``/``vectorizer_loaded`` are the readiness flags. The
+    ``model_*``/``vectorizer_*`` diagnostics expose the exact runtime backend
+    and artifact fingerprints so an operator can verify WHICH trained detector
+    a running server is actually serving (sklearn vs legacy Keras), without
+    any model weights or data leaving the process.
+    """
 
     status: Literal["ok"]
     model_loaded: bool
     vectorizer_loaded: bool
+    model_backend: str | None = None
+    model_file: str | None = None
+    vectorizer_file: str | None = None
+    model_sha256: str | None = None
+    vectorizer_sha256: str | None = None
+    vocab_size: int | None = None
 
 
 class ErrorResponse(BaseModel):

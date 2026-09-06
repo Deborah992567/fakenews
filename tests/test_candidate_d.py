@@ -60,8 +60,11 @@ def _offline_probability(text: str) -> float:
         model = pickle.load(fh)
     with open(settings.vectorizer_file, "rb") as fh:
         vec = pickle.load(fh)
+    # Mirror the production inference path exactly: the Phase 9 source-marker
+    # normaliser runs before cleaning (it strips datelines/bylines/meta).
+    normalized = preprocessing.normalize_news_markers(text) or text
     return float(model.predict_proba(
-        vec.transform([preprocessing.clean_single_text(text)])
+        vec.transform([preprocessing.clean_single_text(normalized)])
     )[0][1])
 
 
@@ -91,7 +94,10 @@ class TestStableInputs:
         svc = ModelService(settings.model_file, settings.vectorizer_file).load()
         pred = svc.predict(REUTERS_REAL)
         assert pred.label == "real"
-        assert pred.probability_real == pytest.approx(0.999993, abs=1e-4)
+        # Re-locked with the adopted source-marker normaliser active:
+        # "WASHINGTON (Reuters) - " is stripped at inference, so the stored
+        # precision dropped from 0.999993 to 0.999827 while remaining REAL.
+        assert pred.probability_real == pytest.approx(0.999827, abs=1e-4)
 
     def test_known_fake_is_fake(self):
         svc = ModelService(settings.model_file, settings.vectorizer_file).load()

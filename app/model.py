@@ -302,8 +302,18 @@ class ModelService:
         return float(np.clip(raw, 0.0, 1.0))
 
     def predict(self, raw_text: str) -> Prediction:
-        """Run the full pipeline for raw text and return a Prediction."""
-        cleaned = preprocessing.clean_single_text(raw_text)
+        """Run the full pipeline for raw text and return a Prediction.
+
+        The Phase 9 source-marker normaliser runs first: unambiguous datelines,
+        bylines and publication stamps are stripped so format artefacts cannot
+        drive the verdict (documented leak: a ``CITY (Reuters) - `` dateline
+        pushed fabricated claims to REAL). The normalizer is narrowly scoped to
+        those stamps; article prose (even when it mentions "Reuters",
+        "officials" or "ministry") is never consumed.
+        """
+        cleaned = preprocessing.clean_single_text(
+            preprocessing.normalize_news_markers(raw_text) or raw_text
+        )
         if not cleaned:
             # Nothing meaningful remained after preprocessing (e.g. all
             # stopwords). There is no signal, so report uncertainty.

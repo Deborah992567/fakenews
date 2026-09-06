@@ -8,6 +8,7 @@ and URL endpoints.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -44,6 +45,15 @@ class AppState:
 state = AppState()
 
 
+def _sha256_file(path: Path) -> str:
+    """SHA-256 of a pickle/artifact file (small; computed once at startup)."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -66,8 +76,17 @@ def create_app() -> FastAPI:
             logger.error("Model load failed: %s", exc)
             state.model = None
             raise RuntimeError(str(exc)) from exc
+        # Record artifact fingerprints so /health can prove which detector is
+        # actually live (e.g. sklearn Candidate D vs legacy Keras baseline).
+        service.model_sha256 = _sha256_file(settings.model_file)
+        service.vectorizer_sha256 = _sha256_file(settings.vectorizer_file)
+        service.vocab_size = len(service._vectorizer.vocabulary_)
         state.model = service
-        logger.info("Model and vectorizer loaded successfully.")
+        logger.info(
+            "Model and vectorizer loaded successfully "
+            "(backend=%s model=%s vocab=%d)",
+            service._backend, settings.model_file.name, service.vocab_size,
+        )
         logger.info("Uncertainty threshold: %s", settings.UNCERTAINTY_THRESHOLD)
         logger.info("Top features: %s", settings.TOP_FEATURES)
         yield
@@ -134,10 +153,30 @@ def create_app() -> FastAPI:
 
     @application.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
+        service = state.model
+        model_loaded = bool(service and service.model_is_loaded)
+        vectorizer_loaded = bool(service and service.vectorizer_is_loaded)
+        if (service is not None and service.is_loaded
+                and getattr(service, "_backend", None) is not None):
+            model_file = service.model_file.name
+            vectorizer_file = service.vectorizer_file.name
+            model_backend = service._backend
+            model_sha256 = getattr(service, "model_sha256", None)
+            vectorizer_sha256 = getattr(service, "vectorizer_sha256", None)
+            vocab_size = getattr(service, "vocab_size", None)
+        else:
+            model_file = vectorizer_file = model_backend = None
+            model_sha256 = vectorizer_sha256 = vocab_size = None
         return HealthResponse(
             status="ok",
-            model_loaded=bool(state.model and state.model.model_is_loaded),
-            vectorizer_loaded=bool(state.model and state.model.vectorizer_is_loaded),
+            model_loaded=model_loaded,
+            vectorizer_loaded=vectorizer_loaded,
+            model_backend=model_backend,
+            model_file=model_file,
+            vectorizer_file=vectorizer_file,
+            model_sha256=model_sha256,
+            vectorizer_sha256=vectorizer_sha256,
+            vocab_size=vocab_size,
         )
 
     @application.get("/info")
