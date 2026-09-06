@@ -50,8 +50,8 @@ class Settings:
 
     HOST: str = _env_str("HOST", "0.0.0.0")
     PORT: int = _env_int("PORT", 8000)
-    MODEL_PATH: str = _env_str("MODEL_PATH", "my_model.h5")
-    VECTORIZER_PATH: str = _env_str("VECTORIZER_PATH", "countvectorizer.pkl")
+    MODEL_PATH: str = _env_str("MODEL_PATH", "my_model_lr.pkl")
+    VECTORIZER_PATH: str = _env_str("VECTORIZER_PATH", "my_tfidf_vectorizer.pkl")
     UNCERTAINTY_THRESHOLD: float = _env_float("UNCERTAINTY_THRESHOLD", 0.10)
     MAX_INPUT_LENGTH: int = _env_int("MAX_INPUT_LENGTH", 20_000)
     MAX_URL_RESPONSE_SIZE: int = _env_int("MAX_URL_RESPONSE_SIZE", 1_000_000)

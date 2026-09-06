@@ -1,9 +1,12 @@
 """Model startup verification.
 
-Can be run standalone to verify that the model and vectorizer files
-are loadable and compatible, independent of the FastAPI server:
+Can be run standalone to verify that the model and vectorizer files are
+loadable and compatible, independent of the FastAPI server:
 
     python -m app.verify_model
+
+Works for both supported backends: the promoted scikit-learn TF-IDF +
+LogisticRegression detector and the legacy Keras network.
 """
 
 from __future__ import annotations
@@ -11,76 +14,37 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import numpy as np
-
 from app.config import settings
-from app.preprocessing import clean_single_text
+from app.model import ModelService, Prediction
 
 
-def _load_service(model_path: Path, vectorizer_path: Path):
-    from app.model import ModelService
-
+def _load_service(model_path: Path, vectorizer_path: Path) -> ModelService:
     print(f"Loading model from {model_path} ...")
     print(f"Loading vectorizer from {vectorizer_path} ...")
     service = ModelService(model_path, vectorizer_path).load()
-    model = service._model
-    vectorizer = service._vectorizer
-    print(f"  Model type     : {type(model).__name__}")
-    print(f"  Parameters     : {model.count_params():,}")
-    print(f"  Input shape    : {model.input_shape}")
-    print(f"  Output shape   : {model.output_shape}")
-    print(f"  Vectorizer type: {type(vectorizer).__name__}")
-    print(f"  Vocab size     : {len(vectorizer.vocabulary_)}")
-    return model, vectorizer
+    print(f"  Backend        : {service._backend}")
+    print(f"  Model type     : {type(service._model).__name__}")
+    print(f"  Vectorizer type: {type(service._vectorizer).__name__}")
+    print(f"  Vocab size     : {len(service._vectorizer.vocabulary_)}")
+    return service
 
 
-def _check_compatibility(model, vectorizer):
-    input_dim = model.input_shape[-1]
-    vocab_size = len(vectorizer.vocabulary_)
-    print(f"\nCompatibility check:")
-    print(f"  Model input dim : {input_dim}")
-    print(f"  Vectorizer vocab: {vocab_size}")
-    if input_dim == vocab_size:
-        print("  Status: COMPATIBLE")
-        return True
-    else:
-        print("  Status: MISMATCH — model input dim != vectorizer vocab size")
-        return False
-
-
-def _test_prediction(model, vectorizer):
-    print(f"\nRunning test prediction ...")
-    sample = clean_single_text(
+def _run_checks(service: ModelService) -> tuple[bool, Prediction]:
+    print("\nRunning test prediction ...")
+    pred = service.predict(
         "Breaking news today as government announces new economic policy"
     )
-    print(f"  Cleaned text: {sample[:80]}...")
-    vector = vectorizer.transform([sample]).toarray()
-    print(f"  Vector shape: {vector.shape}")
-    print(f"  Non-zero features: {np.count_nonzero(vector)}")
-    prediction = model.predict(vector, verbose=0)
-    prob_real = float(prediction[0][0])
-    prob_fake = 1.0 - prob_real
-    label = "real" if prob_real >= prob_fake else "fake"
-    print(f"  P(real)     : {prob_real:.4f}")
-    print(f"  P(fake)     : {prob_fake:.4f}")
-    print(f"  Label       : {label}")
-    print(f"\n  Gradient-based explainability test ...")
-    import tensorflow as tf
-
-    input_tensor = tf.convert_to_tensor(vector.astype("float32"))
-    with tf.GradientTape() as tape:
-        tape.watch(input_tensor)
-        output = model(input_tensor, training=False)
-    gradients = tape.gradient(output, input_tensor)
-    if gradients is not None:
-        grad_np = gradients.numpy()[0]
-        n_active = np.count_nonzero(grad_np)
-        print(f"  Gradient shape  : {grad_np.shape}")
-        print(f"  Non-zero grads  : {n_active}")
-        print(f"  Gradient valid  : YES")
-    else:
-        print(f"  Gradient valid  : NO (gradients are None)")
-    return True
+    print(f"  P(real)     : {pred.probability_real:.4f}")
+    print(f"  P(fake)     : {pred.probability_fake:.4f}")
+    print(f"  Label       : {pred.label}")
+    print(f"  Confidence  : {pred.confidence}")
+    print(f"  Explanation : {len(pred.explanation)} influential feature(s)")
+    ok = (
+        0.0 <= pred.probability_real <= 1.0
+        and abs(pred.probability_real + pred.probability_fake - 1.0) < 1e-6
+        and pred.label in ("real", "fake", "uncertain")
+    )
+    return ok, pred
 
 
 def main() -> int:
@@ -95,12 +59,11 @@ def main() -> int:
         return 1
 
     try:
-        model, vectorizer = _load_service(model_path, vectorizer_path)
-        compatible = _check_compatibility(model, vectorizer)
-        if not compatible:
+        service = _load_service(model_path, vectorizer_path)
+        ok, _pred = _run_checks(service)
+        if not ok:
             return 1
-        _test_prediction(model, vectorizer)
-        print(f"\nAll checks passed.")
+        print("\nAll checks passed.")
         return 0
     except Exception as exc:
         print(f"\nERROR: {exc}")

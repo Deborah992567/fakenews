@@ -128,13 +128,16 @@ pip install -r requirements-dev.txt
 The application expects two trained artifacts in the project root (or at paths
 configured via `MODEL_PATH` and `VECTORIZER_PATH`):
 
-- `my_model.h5` – the trained Keras neural network.
-- `countvectorizer.pkl` – a scikit-learn `CountVectorizer` fitted on the
-  training corpus.
+- `my_model_lr.pkl` – the promoted scikit-learn `LogisticRegression` detector.
+- `my_tfidf_vectorizer.pkl` – the matching `TfidfVectorizer` fitted on the
+  same training corpus.
 
-These reproduce the pipeline defined in `fake_news.ipynb`. If a file is
-missing, the application fails to start with a clear message rather than
-silently serving broken predictions.
+The legacy `my_model.h5` / `countvectorizer.pkl` (Keras neural network +
+CountVectorizer) are preserved as immutable rollback backups under
+`artifacts/baseline/` and still load through the same code path (see
+`reports/release_manifest.json`). If a model file is missing, the application
+fails to start with a clear message rather than silently serving broken
+predictions.
 
 ---
 
@@ -148,8 +151,8 @@ file). See `.env.example` for a full template:
 | `HOST`                 | `0.0.0.0`       | Bind host for the server.                          |
 | `PORT`                 | `8000`          | Port for the server.                               |
 | `LOG_LEVEL`            | `INFO`          | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
-| `MODEL_PATH`             | `my_model.h5`   | Path to the trained model.                         |
-| `VECTORIZER_PATH`        | `countvectorizer.pkl` | Path to the vectorizer.                    |
+| `MODEL_PATH`             | `my_model_lr.pkl`   | Path to the trained model.                         |
+| `VECTORIZER_PATH`        | `my_tfidf_vectorizer.pkl` | Path to the vectorizer.                    |
 | `UNCERTAINTY_THRESHOLD`  | `0.10`          | Distance from 50% below which a verdict is uncertain. |
 | `MAX_INPUT_LENGTH`       | `20000`         | Maximum characters accepted for pasted text.       |
 | `MAX_URL_RESPONSE_SIZE`  | `1000000`       | Maximum bytes accepted from a fetched URL.         |
@@ -384,8 +387,11 @@ External HTTP is mocked — no real network or news site is contacted.
 │   ├── style.css
 │   └── script.js
 ├── tests/                # pytest suite
-├── my_model.h5           # trained model (tracked)
-├── countvectorizer.pkl   # trained vectorizer (tracked)
+├── my_model_lr.pkl        # promoted robust LR detector (tracked)
+├── my_tfidf_vectorizer.pkl # matching TF-IDF vectorizer (tracked)
+├── my_model.h5            # legacy Keras model (preserved backup)
+├── countvectorizer.pkl    # legacy CountVectorizer (preserved backup)
+├── artifacts/baseline/    # immutable legacy artifacts (tracked)
 ├── fake_news.ipynb       # original training notebook
 ├── Dockerfile
 ├── docker-compose.yml
@@ -400,9 +406,11 @@ External HTTP is mocked — no real network or news site is contacted.
 
 - **`ModuleNotFoundError: No module named 'tensorflow'`** – make sure you are
   using Python 3.10–3.12 and ran `pip install -r requirements.txt`.
-- **Model fails to load at startup** – verify `my_model.h5` exists and matches
-  `MODEL_PATH`, and that the vectorizer was fitted with the same preprocessing
-  as in `fake_news.ipynb`.
+- **Model fails to load at startup** – verify the file referenced by
+  `MODEL_PATH` (default `my_model_lr.pkl`) matches the vectorizer at
+  `VECTORIZER_PATH` (`my_tfidf_vectorizer.pkl`), and that the vectorizer was
+  fitted with the same preprocessing as in `fake_news.ipynb`. The legacy
+  `my_model.h5` / `countvectorizer.pkl` remain valid via those env vars.
 - **Port already in use** – set a different `PORT` in your environment or
   `.env`.
 - **Frontend shows "Unable to connect"** – the backend is not running; start it

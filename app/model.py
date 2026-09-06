@@ -1,24 +1,24 @@
 """Model wrapper around the trained fake-news detector.
 
-Loads the TensorFlow/Keras model and the scikit-learn vectorizer once at
-application startup, then exposes a single ``predict`` entry point used by
-both the pasted-text and URL endpoints.
+Loads the model and vectorizer once at application startup, then exposes a
+single ``predict`` entry point used by both the pasted-text and URL endpoints.
 
-Model architecture (from ``fake_news.ipynb``):
-  Input  → Dense(12, relu) → Dense(12, relu) → Dense(12, relu) → Dense(1, sigmoid)
+Two backends are supported:
 
-The sigmoid output represents P(real).  Label mapping:
-  - true_df['label'] = 1 → REAL
-  - fake_df['label'] = 0 → FAKE
+* **keras** — a TensorFlow/Keras network (the legacy production model,
+  ``Dense(12,relu) x3 -> Dense(1, sigmoid)``) paired with a scikit-learn
+  CountVectorizer. The sigmoid output represents P(real); label 1 = REAL,
+  0 = FAKE.  Explainability uses gradient-based saliency.
+* **sklearn** — a scikit-learn estimator with ``predict_proba`` (the promoted
+  robust detector: TF-IDF + LogisticRegression) paired with its vectorizer.
+  Explainability uses the linear model's TF-IDF feature contributions
+  (``coefficient x term weight``), which is the model-appropriate attribution
+  for a logistic model. Gradient-tape saliency does not apply here.
 
-Input is a CountVectorizer bag-of-words (nltk PorterStemmer tokens).
+Both backends return the same P(real) scale and the same verdict rule.
 
-Input attribution (explainability) is computed using gradient-based saliency:
-we measure the gradient of the model's real-probability output with respect to
-each active (present) word in the input. A positive attribution means the word
-pushes the prediction toward *real*; a negative attribution pushes toward
-*fake*. These are *model influences*, not factual proof that a word is real or
-fake.
+Attributions are *model influences* (which words push the prediction toward
+real/fake), not factual proof that a word is real or fake.
 """
 
 from __future__ import annotations
@@ -112,6 +112,8 @@ class ModelService:
         self.vectorizer_file = vectorizer_file
         self._model: Any | None = None
         self._vectorizer: Any | None = None
+        self._backend: str | None = None  # "keras" | "sklearn"
+        self._bundle: bool = False
 
     # ------------------------------------------------------------------ #
     # Loading
@@ -119,22 +121,73 @@ class ModelService:
     def load(self) -> "ModelService":
         """Load the model and vectorizer from disk.
 
+        Supports both the legacy Keras/H5 backend and the promoted scikit-learn
+        backend (pickled estimator, pickled vectorizer, or a single pickle
+        bundling ``{"vec": ..., "model": ...}``).
+
         Raises :class:`ModelLoadError` with a clear message identifying the
         missing or unloadable file.
         """
-        self._model = self._load_model()
-        self._vectorizer = self._load_vectorizer()
+        self._load_model_and_vectorizer()
 
         if self._model is None or self._vectorizer is None:
             raise ModelLoadError("Model or vectorizer failed to initialise.")
         return self
 
-    def _load_model(self) -> Any | None:
-        if not self.model_file.exists():
+    def _try_load_sklearn(self) -> Any | None:
+        """Attempt to load the model file as a pickled scikit-learn estimator.
+
+        Returns the estimator, or None if the file is not a sklearn pickle
+        (e.g. a Keras ``.h5`` archive).  A bundle dict ``{"vec": ..., "model": ...}``
+        is unwrapped so ``self._vectorizer`` comes from the bundle when present.
+        """
+        import pickle
+
+        try:
+            with self.model_file.open("rb") as handle:
+                obj = pickle.load(handle)
+        except Exception:  # noqa: BLE001 - .h5 files are not picklable
+            return None
+        if isinstance(obj, dict) and "model" in obj and "vec" in obj:
+            estimator = obj["model"]
+            if not hasattr(estimator, "predict_proba"):
+                raise ModelLoadError(
+                    f"The estimator at {self.model_file} does not expose "
+                    "predict_proba; only probability-exporting estimators can "
+                    "serve predictions."
+                )
+            self._vectorizer = obj["vec"]
+            self._bundle = True
+            return estimator
+        if hasattr(obj, "predict_proba"):
+            self._bundle = False
+            return obj
+        return None
+
+    def _load_model_and_vectorizer(self) -> None:
+        model_file_missing = not self.model_file.exists()
+        if model_file_missing:
             raise ModelLoadError(
                 f"Model file not found at {self.model_file}. "
-                "Place the trained Keras model there (or set MODEL_PATH)."
+                "Place the trained model there (or set MODEL_PATH)."
             )
+        vectorizer = None
+        estimator = self._try_load_sklearn()
+        if estimator is not None:
+            self._backend = "sklearn"
+            self._model = estimator
+            if self._bundle:
+                # Vectorizer lives inside the bundle; the standalone file is
+                # optional in that case.
+                return
+            self._vectorizer = self._load_vectorizer_file(self.vectorizer_file)
+            return
+        # Not a sklearn pickle -> legacy Keras model.
+        self._backend = "keras"
+        self._model = self._load_keras_model()
+        self._vectorizer = self._load_vectorizer_file(self.vectorizer_file)
+
+    def _load_keras_model(self) -> Any:
         import tensorflow as tf
 
         try:
@@ -156,21 +209,50 @@ class ModelService:
             )
         return loaded
 
-    def _load_vectorizer(self) -> Any | None:
-        if not self.vectorizer_file.exists():
+    def _load_vectorizer_file(self, vectorizer_file: Path) -> Any:
+        if not vectorizer_file.exists():
             raise ModelLoadError(
-                f"Vectorizer file not found at {self.vectorizer_file}. "
-                "Place the trained CountVectorizer there (or set VECTORIZER_PATH)."
+                f"Vectorizer file not found at {vectorizer_file}. "
+                "Place the trained vectorizer there (or set VECTORIZER_PATH)."
             )
         try:
             import pickle
 
-            with self.vectorizer_file.open("rb") as handle:
+            with vectorizer_file.open("rb") as handle:
                 return pickle.load(handle)
         except Exception as exc:  # noqa: BLE001
             raise ModelLoadError(
-                f"Failed to load the vectorizer from {self.vectorizer_file}: {exc}"
+                f"Failed to load the vectorizer from {vectorizer_file}: {exc}"
             ) from exc
+
+    def _load_model(self) -> Any | None:
+        """Legacy single-purpose loader (Keras), kept for API compatibility."""
+        if not self.model_file.exists():
+            raise ModelLoadError(
+                f"Model file not found at {self.model_file}. "
+                "Place the trained model there (or set MODEL_PATH)."
+            )
+        import tensorflow as tf
+
+        try:
+            loaded = tf.keras.models.load_model(self.model_file, compile=False)
+            if not _has_input_gradients(loaded):
+                loaded = _rebuild_functional_model(loaded)
+        except Exception as exc:  # noqa: BLE001 - surface any keras load failure
+            raise ModelLoadError(
+                f"Failed to load the model from {self.model_file}: {exc}"
+            ) from exc
+        if not _has_input_gradients(loaded):
+            raise ModelLoadError(
+                "Gradient-based explainability is unavailable because the "
+                f"model at {self.model_file} does not propagate gradients "
+                "to its input."
+            )
+        return loaded
+
+    def _load_vectorizer(self) -> Any | None:
+        """Legacy single-purpose vectorizer loader, kept for API compatibility."""
+        return self._load_vectorizer_file(self.vectorizer_file)
 
     @property
     def is_loaded(self) -> bool:
@@ -188,7 +270,8 @@ class ModelService:
         status = "loaded" if self.is_loaded else "not loaded"
         return (
             f"ModelService(model={self.model_file.name}, "
-            f"vectorizer={self.vectorizer_file.name}, status={status})"
+            f"vectorizer={self.vectorizer_file.name}, backend={self._backend}, "
+            f"status={status})"
         )
 
     # ------------------------------------------------------------------ #
@@ -205,7 +288,15 @@ class ModelService:
         vector = self._vectorizer.transform([cleaned_text]).toarray()
         if np.count_nonzero(vector) == 0:
             return 0.5
-        raw = float(self._model.predict(vector, verbose=0)[0][0])
+        if self._backend == "sklearn":
+            proba = self._model.predict_proba(vector)
+            if np.asarray(proba).ndim == 2:
+                col = 1 if proba.shape[1] >= 2 else 0
+                raw = float(proba[0][col])
+            else:
+                raw = float(proba[0])
+        else:
+            raw = float(self._model.predict(vector, verbose=0)[0][0])
         if isinstance(raw, (list, tuple, np.ndarray)):
             raw = float(raw[0])
         return float(np.clip(raw, 0.0, 1.0))
@@ -247,12 +338,51 @@ class ModelService:
     # Explainability
     # ------------------------------------------------------------------ #
     def _explain(self, cleaned_text: str) -> list[ExplanationItem]:
-        """Compute per-word influence via gradient attribution.
+        """Compute per-word influence using the backend-appropriate method.
 
-        Returns the strongest contributing words with a direction of "real"
-        or "fake" based on the sign of the gradient against the vectorizer's
-        feature index for each word present in the input.
+        * keras: gradient attribution of P(real) w.r.t. each active input word.
+        * sklearn: linear-model feature contribution (coefficient x tf-idf) —
+          the natural attribution for a logistic model; NOT a saliency because
+          there is no gradient from a neural network.
         """
+        if self._backend == "sklearn":
+            return self._explain_sklearn(cleaned_text)
+        return self._explain_keras_gradient(cleaned_text)
+
+    def _explain_sklearn(self, cleaned_text: str) -> list[ExplanationItem]:
+        """TF-IDF feature-contribution explanation for a linear model.
+
+        For each term present in the input, contribution = coef_i * tfidf_i
+        (per-unit log-odds push). Impact is reported relative to the strongest
+        contributing term (strongest == 100). Direction reflects the sign of
+        the contribution.  These are *influential features*, not proof of
+        truth or falsity.
+        """
+        try:
+            coefficient = np.asarray(self._model.coef_).ravel()
+        except Exception:  # noqa: BLE001 - no linear coefficients available
+            return []
+        feature_names = self._feature_names()
+        matrix = self._vectorizer.transform([cleaned_text])
+        contributions: dict[int, float] = {}
+        for idx, value in zip(matrix.indices, matrix.data):
+            contributions[int(idx)] = float(coefficient[idx] * value)
+        if not contributions:
+            return []
+        max_abs = max(abs(c) for c in contributions.values()) or 1.0
+        items: list[ExplanationItem] = []
+        for idx, contribution in contributions.items():
+            if idx >= len(feature_names):
+                continue
+            direction = "real" if contribution > 0 else "fake"
+            impact = round(abs(contribution) / max_abs * 100.0, 2)
+            items.append(ExplanationItem(
+                word=feature_names[idx], impact=impact, direction=direction))
+        items.sort(key=lambda item: item.impact, reverse=True)
+        limit = max(1, min(settings.TOP_FEATURES, 50))
+        return items[:limit]
+
+    def _explain_keras_gradient(self, cleaned_text: str) -> list[ExplanationItem]:
         vector = self._vectorizer.transform([cleaned_text]).toarray()
         active_indices = np.flatnonzero(vector[0])
         if len(active_indices) == 0:

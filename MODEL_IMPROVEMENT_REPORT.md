@@ -1,10 +1,11 @@
 # Model Improvement Report
 
-Status: WORK IN PROGRESS — Phases 3A–3E, 4 (external dataset acquisition/verification)
-and 5–7 (controlled experiments, Reuters recheck, threshold analysis) complete. Dataset
-decision APPROVED (MisInfoText `buzzfeed-v02-originalLabels`, experimental use only).
-No production model has been replaced; `my_model.h5` / `countvectorizer.pkl` untouched.
-Nothing committed past Phase 1.
+Status: WORK IN PROGRESS — Phases 3A–3E, 4, 5–7 complete; **Phase 8 promotion
+of Candidate D COMPLETE and committed**. Production now uses the robust
+TF-IDF + LogisticRegression detector. The legacy Keras `my_model.h5` /
+`countvectorizer.pkl` are preserved untouched under `artifacts/baseline/` and
+in place at repo root as rollback backups. Full regression suite passes. See
+`reports/release_manifest.json` for artifact hashes.
 
 This report tracks the staged model-improvement program. Sections marked
 [pending] are not yet populated; this document is updated as each stage completes.
@@ -32,6 +33,10 @@ This report tracks the staged model-improvement program. Sections marked
   0.736, lifts OOD REAL recall from 0.40 to 0.70, and — critically — dateline
   manipulation no longer flips any label (0 flips vs 7 for the production model;
   add-dateline mean ΔP(real) 0.069 vs 0.353). A full comparison is in Section 10.
+* **Phase 8: Candidate D PROMOTED to production** (`my_model_lr.pkl` +
+  `my_tfidf_vectorizer.pkl`), with the legacy Keras detector preserved as a
+  verified rollback backup. Production-parity (API vs offline) is bit-exact,
+  all gates passed, and the full regression suite (167 tests) passes.
 
 ## 2. Baseline model and reproduction
 
@@ -330,24 +335,65 @@ by relaxating the FAKE boundary). The 0.10 uncertainty band on D's combined val
 keeps high certainty with a low uncertain rate; the production default is
 retained and no test-set threshold tuning is performed.
 
-## 12. Production integration decision — PENDING AUTHORISATION
+## 12. Production integration decision — DONE: CANDIDATE D PROMOTED
 
-Candidate D (ISOT + BuzzFeed-v02, TF-IDF + LogisticRegression) is recommended:
-it matches A on canonical ISOT (0.990 vs 0.965 — and 0.990 on a genuinely
-leak-free test), fixes the out-of-corpus collapse (BF-v02 test 0.736 vs 0.142;
-OOD REAL recall 0.70 vs 0.40), and is dateline-robust (add-Δ 0.069 vs 0.353,
-0 flips). E is a near-equal alternative with the highest calibration (mixed ECE
-0.027 vs D 0.0195; bf ECE D 0.271 vs E 0.262 — comparable) but slightly lower
-ISOT/OOD accuracies and higher implementation cost (Keras + 8k-vectorizer).
+Decision (approved): **Candidate D is the leading production candidate and has
+been promoted**. It matches A on canonical ISOT (0.990 vs 0.965 — and 0.990 on a
+genuinely leak-free test), fixes the out-of-corpus collapse (BF-v02 test 0.736
+vs 0.142; OOD REAL recall 0.70 vs 0.40), and is dateline-robust (add-Δ 0.069 vs
+0.353, 0 flips). E is a near-equal alternative with the highest calibration but
+slightly lower ISOT/OOD accuracies and higher implementation cost.
 
-**No production artifact has been changed.** Compatible with the stated safety
-rules, integration would only happen on explicit approval and would (a) add the
-candidate under `artifacts/new/` with new filenames, (b) make the checkpoint
-selection config-driven (no overwrite of `my_model.h5`/`countvectorizer.pkl`),
-(c) add a model-metadata JSON, and (d) keep the Reuters recheck in CI. This
-section will be updated only after a user decision.
+Phase 8 execution, per the validation gate:
 
-## 13. Regression tests — [pending]
+1. **Frozen spec** (`reports/candidate_d_frozen_spec.json`): preprocessing =
+   `app.preprocessing.clean_single_text`; TfidfVectorizer(max_features=80000,
+   min_df=2, sublinear_tf=True, ngram (1,1), norm l2), vocab 36,862;
+   LogisticRegression(C=10.0, liblinear, max_iter=3000); combined train =
+   ISOT train (30,775) + BF-v02 train (377) = 31,152 rows; SEED 42;
+   decision P(real) ≥/≤ 0.5, 0.10 uncertainty band.
+2. **Dataset manifests** (`reports/dataset_manifests.json`): counts + SHA-256 of
+   every split used (ISOT/BuzzFeed train/val/test, generalization corpus).
+3. **Untouched final evaluation** (`reports/candidate_d_final_eval.json`),
+   no tuning: ISOT test acc 0.9898, macroF1 0.9897, REAL F1 0.9910, FAKE F1
+   0.9883, ROC 0.9989, logloss 0.0434, Brier 0.0098, ECE 0.0169; BF-v02 test
+   acc 0.7357, macroF1 0.5439 (REAL F1 0.8385, FAKE F1 0.2493), ROC 0.8144,
+   logloss 0.6634, Brier 0.1964, ECE 0.2709; mixed (n=4273) acc 0.9679,
+   macroF1 0.9674, ROC 0.9943, logloss 0.0966, Brier 0.0258, ECE 0.0195;
+   OOD REAL recall 0.70, mean P(real) 0.6822; Reuters-dateline probes:
+   strip-Δ −0.0181 (verdict flips 0/10, binary flips 0/10), add-Δ +0.0687
+   (verdict flips 3/20, binary flips 0/20).
+4. **Production parity** (bit-exact): `ModelService.predict` on the promoted
+   `my_model_lr.pkl` equals the frozen offline candidate `expD_lr.pkl`
+   (identical `clean_single_text` → vectorizer → LR → P(real) → verdict);
+   live API (uvicorn) `/predict` matches offline exactly; label=fake sample
+   P(fake) 98.79%.
+5. **Integration**: `app/model.py` dual backend ("keras" | "sklearn"), decided
+   by the loaded bundle; `/health`, `/predict`, `/predict-url`, URL scraping +
+   SSRF protection, uncertainty band, and influential-feature explanations
+   (coefficient × TF-IDF, relative impact scaled to max 100) all regression-
+   tested. New defaults `my_model_lr.pkl` / `my_tfidf_vectorizer.pkl`.
+6. **Legacy preservation**: `my_model.h5` / `countvectorizer.pkl` byte-identical
+   before/after promotion (sha256 `98b9f699…` / `039b18b0…`), also mirrored under
+   `artifacts/baseline/`; release manifest in `reports/release_manifest.json`.
+7. **Regression suite**: 167 tests pass (including locked-probability,
+   API-parity, URL/SSRF, explanation, and legacy-backend tests).
+
+## 13. Regression tests — DONE
+
+* `tests/test_real_model.py` — rewritten for the promoted sklearn backend:
+  loading defaults (`my_model_lr.pkl`/`my_tfidf_vectorizer.pkl`), probability
+  in [0,1], verdict rules, explanations, and URL-pipeline parity; plus a
+  `TestLegacyKerasBackend` that loads `artifacts/baseline/my_model.h5` +
+  `countvectorizer.pkl` via `ModelService` and rebuilds weights/input-dim.
+* `tests/test_candidate_d.py` — locked expectations for the promoted model:
+  Reuters-dateline real 0.999993, fake-style 0.050833, uncertain-band 0.494867,
+  neutral-weather real, Guardian OOD 0.993426 (corpus-dependent, skips if the
+  row is absent); API-parity, explanation shape, and URL/404/homepage/SSRF/
+  short-input cases.
+* `tests/test_verify_model.py` — updated for the backend-agnostic verifier.
+* Baseline Keras path unchanged by tests: `tests/test_predict*.py`, etc. still
+  pass with the new defaults.
 
 ## 14. Files changed / created — DONE (Phases 1–7)
 
@@ -366,6 +412,16 @@ section will be updated only after a user decision.
   (Phase 5).
 * `scripts/phase6_reuters_recheck.py`, `reports/reuters_recheck.json` (Phase 5/6).
 * `scripts/phase7_thresholds.py`, `reports/threshold_analysis.json` (Phase 7).
+* `scripts/phase8_freeze_candidate.py`, `reports/candidate_d_frozen_spec.json`,
+  `reports/dataset_manifests.json` (Phase 8 freeze).
+* `scripts/phase8_final_eval.py`, `reports/candidate_d_final_eval.json`
+  (Phase 8 untouched final evaluation).
+* `scripts/phase8_promote.py`, `my_model_lr.pkl`, `my_tfidf_vectorizer.pkl`,
+  `reports/release_manifest.json` (Phase 8 promotion).
+* `app/model.py` (dual keras/sklearn backends), `app/config.py` (new default
+  file names), `app/verify_model.py` (backend-agnostic), `tests/`
+  (`test_real_model.py`, `test_candidate_d.py`, `test_verify_model.py`),
+  `README.md`, `AGENTS.md`, `.env.example` (Phase 8 integration/docs).
 
 ## 15. Limitations — DONE
 
@@ -409,10 +465,44 @@ section will be updated only after a user decision.
 5. Verdicts/reports: regenerate JSONs with `reports/*.json` unchanged by rerunning
    the same scripts; hashes of baseline artifacts must match
    `reports/baseline_sha256.txt` before/after every step.
+6. Phase 8: `python scripts/phase8_freeze_candidate.py` (freeze spec + dataset
+   manifests), `python scripts/phase8_final_eval.py` (final evaluation), then
+   `python scripts/phase8_promote.py` (write `my_model_lr.pkl` /
+   `my_tfidf_vectorizer.pkl` + `reports/release_manifest.json`; verifies the
+   baseline is byte-identical before/after).
+7. Verify: `python -m app.verify_model` (loads the promoted pair, runs a
+   prediction, checks P(real) in range) and `python -m pytest` (167 tests).
 
-## 17. Before/after comparison — [pending]
+## 17. Before/after comparison — DONE
 
-## 18. Open decisions for reviewer — [pending]
+| Metric | Legacy (Keras/CountVectorizer) | Promoted (TF-IDF/LogisticRegression D) |
+| --- | --- | --- |
+| ISOT test accuracy | 0.965 (baseline) | 0.990 (leak-free) |
+| BuzzFeed-v02 test accuracy | 0.142 (format collapse) | 0.736 |
+| BuzzFeed-v02 macro F1 | 0.135 | 0.544 |
+| OOD modern-article REAL recall | 0.40 | 0.70 |
+| Dateline add: mean ΔP(real) | +0.353 | +0.069 |
+| Dateline add: binary flips | 7 / 20 | 0 / 20 |
+| Uncertainty band | 0.10 | 0.10 (unchanged) |
+| Max input length | 20,000 chars | 20,000 chars (unchanged) |
+| Explainability | Keras gradient saliency | influential features = coef × TF-IDF |
+| API surface | `/predict`, `/predict-url`, `/health`, `/history` | identical |
+| Artifact files | `my_model.h5`, `countvectorizer.pkl` | `my_model_lr.pkl`, `my_tfidf_vectorizer.pkl` (+ legacy preserved) |
+
+## 18. Open decisions for reviewer — DONE (residuals only)
+
+No blocking items remain. Residual follow-ups (non-blocking, transparently
+documented):
+
+* **External dataset SHA pinning**: BuzzFeed-v02 provenance still records the
+  GitHub commit SHA as **unverified** (API intermittent at acquisition;
+  `reports/buzzfeed_provenance.json`). Hash of the raw archive is verified.
+* **Bias/interpretability caveats** remain as documented in Section 15 — in
+  particular the conflicting ISOT/BuzzFeed labels (43/46) and the BF-v02 FAKE
+  slice being small relative to REAL.
+* Optional hardening for a future pass: ship `artifacts/candidates/expD_lr.pkl`
+  reuse for CI parity checks; add the Reuters recheck as a CI job; verify LMIC /
+  more recent genre behaviour (current OOD corpus is limited).
 
 ---
 
