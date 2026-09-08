@@ -8,7 +8,6 @@ and URL endpoints.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,25 +35,26 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 
 class AppState:
-    """Shared mutable state stored on the FastAPI application."""
+    """Shared mutable state stored on the FastAPI application.
+
+    Owned by ``create_app`` (``app.state.app_state``).  The module-level
+    ``state`` below is bound to the default application so existing tests keep
+    working, but every new ``create_app()`` call receives isolated state.
+    """
 
     def __init__(self) -> None:
         self.model: ModelService | None = None
 
 
-state = AppState()
+def create_app(app_state: AppState | None = None) -> FastAPI:
+    """Build the FastAPI application.
 
+    ``app_state`` lets callers inject state (the module-level singleton is the
+    default); each application instance owns its own state so repeated
+    ``create_app()`` calls never share a live model.
+    """
+    shared_state = app_state if app_state is not None else AppState()
 
-def _sha256_file(path: Path) -> str:
-    """SHA-256 of a pickle/artifact file (small; computed once at startup)."""
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         # Ensure NLTK data is available before any predictions.
@@ -62,7 +62,9 @@ def create_app() -> FastAPI:
         # Log configuration warnings before model load.
         for warning in settings.validate():
             logger.warning("Config: %s", warning)
-        # Load the model/vectorizer once during startup and store in state.
+        # Load the model/vectorizer once during startup; ModelService.load()
+        # also fingerprints the artifact files and describes the model, so
+        # readiness facts live with the service itself.
         logger.info(
             "Loading model from %s and vectorizer from %s",
             settings.model_file,
@@ -74,23 +76,22 @@ def create_app() -> FastAPI:
         except ModelLoadError as exc:
             # Do not silently continue; the app is unusable for predictions.
             logger.error("Model load failed: %s", exc)
-            state.model = None
+            shared_state.model = None
             raise RuntimeError(str(exc)) from exc
-        # Record artifact fingerprints so /health can prove which detector is
-        # actually live (e.g. sklearn Candidate D vs legacy Keras baseline).
-        service.model_sha256 = _sha256_file(settings.model_file)
-        service.vectorizer_sha256 = _sha256_file(settings.vectorizer_file)
-        service.vocab_size = len(service._vectorizer.vocabulary_)
-        state.model = service
+        shared_state.model = service
         logger.info(
-            "Model and vectorizer loaded successfully "
-            "(backend=%s model=%s vocab=%d)",
-            service._backend, settings.model_file.name, service.vocab_size,
+            "Model loaded successfully (backend=%s model=%s vocab=%d "
+            "model_sha256=%s vectorizer_sha256=%s)",
+            service._backend,
+            settings.model_file.name,
+            service.vocab_size,
+            service.model_sha256,
+            service.vectorizer_sha256,
         )
         logger.info("Uncertainty threshold: %s", settings.UNCERTAINTY_THRESHOLD)
         logger.info("Top features: %s", settings.TOP_FEATURES)
         yield
-        state.model = None
+        shared_state.model = None
 
     application = FastAPI(
         title="Fake News Detector",
@@ -102,6 +103,7 @@ def create_app() -> FastAPI:
         version="2.0.0",
         lifespan=lifespan,
     )
+    application.state.app_state = shared_state
 
     application.add_middleware(
         CORSMiddleware,
@@ -152,8 +154,8 @@ def create_app() -> FastAPI:
         return FileResponse(FRONTEND_DIR / "index.html")
 
     @application.get("/health", response_model=HealthResponse)
-    def health() -> HealthResponse:
-        service = state.model
+    def health(request: Request) -> HealthResponse:
+        service = request.app.state.app_state.model
         model_loaded = bool(service and service.model_is_loaded)
         vectorizer_loaded = bool(service and service.vectorizer_is_loaded)
         if (service is not None and service.is_loaded
@@ -203,13 +205,14 @@ def create_app() -> FastAPI:
             for e in entries
         ]
 
-    def _require_model() -> ModelService:
-        if state.model is None or not state.model.is_loaded:
+    def _require_model(request: Request) -> ModelService:
+        model = request.app.state.app_state.model
+        if model is None or not model.is_loaded:
             raise HTTPException(
                 status_code=503,
                 detail="The detector model is not loaded. Please try again later.",
             )
-        return state.model
+        return model
 
     def _to_response(
         service: ModelService,
@@ -253,8 +256,8 @@ def create_app() -> FastAPI:
         return response
 
     @application.post("/predict", response_model=PredictResponse)
-    def predict(req: PredictRequest) -> PredictResponse:
-        service = _require_model()
+    def predict(request: Request, req: PredictRequest) -> PredictResponse:
+        service = _require_model(request)
         text = req.news.strip()
         if len(text) > settings.MAX_INPUT_LENGTH:
             raise HTTPException(
@@ -265,8 +268,8 @@ def create_app() -> FastAPI:
         return _to_response(service, text, "text")
 
     @application.post("/predict-url", response_model=PredictResponse)
-    def predict_url(req: UrlRequest) -> PredictResponse:
-        service = _require_model()
+    def predict_url(request: Request, req: UrlRequest) -> PredictResponse:
+        service = _require_model(request)
         extract = fetch_article(req.url)
         if not extract.text.strip():
             raise HTTPException(
@@ -284,4 +287,5 @@ def create_app() -> FastAPI:
     return application
 
 
-app = create_app()
+state = AppState()
+app = create_app(app_state=state)
