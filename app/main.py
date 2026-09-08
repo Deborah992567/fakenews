@@ -22,6 +22,7 @@ from app.config import settings
 from app.model import ModelLoadError, ModelService
 from app.prediction_log import PredictionEntry, prediction_log
 from app.preprocessing import ensure_stopwords_available
+from app.ratelimit import RateLimitMiddleware, SlidingWindowRateLimiter
 from app.scraper import ExtractResult, ScrapeError, fetch_article
 from app.security import RequestBodyLimitMiddleware
 from app.schemas import (
@@ -51,6 +52,13 @@ class AppState:
         self.url_cache: TTLCache = TTLCache(
             ttl_seconds=settings.CACHE_URL_TTL_SECONDS,
             max_items=settings.CACHE_URL_MAX_ITEMS,
+        )
+        # Per-process sliding-window rate limiter (audit B5). Each application
+        # instance owns its counters; see docs/concurrency.md for limits.
+        self.rate_limiter: SlidingWindowRateLimiter = SlidingWindowRateLimiter(
+            limit=settings.RATE_LIMIT_REQUESTS,
+            window_seconds=settings.RATE_LIMIT_WINDOW_SECONDS,
+            max_keys=settings.RATE_LIMIT_MAX_IPS,
         )
 
 
@@ -127,6 +135,9 @@ def create_app(app_state: AppState | None = None) -> FastAPI:
         RequestBodyLimitMiddleware,
         max_body_bytes=settings.MAX_REQUEST_BODY_BYTES,
     )
+
+    # Outermost: enforces the per-IP sliding-window rate limit (audit B5).
+    application.add_middleware(RateLimitMiddleware)
 
     @application.exception_handler(Exception)
     def unhandled_exception(request: Request, exc: Exception):
