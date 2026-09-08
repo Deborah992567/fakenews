@@ -27,8 +27,10 @@ from app.scraper import ExtractResult, ScrapeError, fetch_article
 from app.security import RequestBodyLimitMiddleware
 from app.schemas import (
     HealthResponse,
+    LiveResponse,
     PredictRequest,
     PredictResponse,
+    ReadyResponse,
     UrlRequest,
 )
 
@@ -205,6 +207,42 @@ def create_app(app_state: AppState | None = None) -> FastAPI:
             model_sha256=model_sha256,
             vectorizer_sha256=vectorizer_sha256,
             vocab_size=vocab_size,
+        )
+
+    @application.get("/health/live", response_model=LiveResponse)
+    def health_live() -> LiveResponse:
+        """Liveness: the process serves HTTP regardless of model state.
+
+        Deliberately model-independent so orchestrators can tell "up" apart
+        from "ready" (audit B6 — the old blended /health conflated the two).
+        """
+        return LiveResponse(status="ok")
+
+    @application.get("/health/ready", response_model=ReadyResponse)
+    def health_ready(request: Request) -> ReadyResponse:
+        """Readiness: can this instance actually produce a prediction?
+
+        503 + detail while the model is still loading or failed to load;
+        on success returns the same readiness facts the blended /health reports.
+        """
+        service = request.app.state.app_state.model
+        model_loaded = bool(service and service.model_is_loaded)
+        model_ready = bool(service and service.model_ready)
+        if not model_ready:
+            raise HTTPException(
+                status_code=503,
+                detail="Detector is not ready to serve predictions.",
+            )
+        return ReadyResponse(
+            status="ready",
+            model_loaded=model_loaded,
+            model_ready=model_ready,
+            model_backend=getattr(service, "_backend", None),
+            model_file=service.model_file.name if service else None,
+            vectorizer_file=service.vectorizer_file.name if service else None,
+            model_sha256=getattr(service, "model_sha256", None),
+            vectorizer_sha256=getattr(service, "vectorizer_sha256", None),
+            vocab_size=getattr(service, "vocab_size", None),
         )
 
     @application.get("/info")
