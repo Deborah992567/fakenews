@@ -49,7 +49,7 @@ class UrlRequest(BaseModel):
     """Request payload for analysing an article located at a URL."""
 
     url: str = Field(..., description="The article URL to fetch and analyse",
-                     max_length=2048)
+                     max_length=settings.MAX_URL_LENGTH)
 
     @field_validator("url")
     @classmethod

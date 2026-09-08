@@ -23,6 +23,7 @@ from app.model import ModelLoadError, ModelService
 from app.prediction_log import PredictionEntry, prediction_log
 from app.preprocessing import ensure_stopwords_available
 from app.scraper import ExtractResult, ScrapeError, fetch_article
+from app.security import RequestBodyLimitMiddleware
 from app.schemas import (
     HealthResponse,
     PredictRequest,
@@ -118,6 +119,13 @@ def create_app(app_state: AppState | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+
+    # Bounds request bodies BEFORE any route reads them (audit B4): rejects
+    # oversized payloads with 413 without ever materialising the body.
+    application.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_body_bytes=settings.MAX_REQUEST_BODY_BYTES,
     )
 
     @application.exception_handler(Exception)

@@ -61,6 +61,8 @@ class Settings:
     VECTORIZER_PATH: str = _env_str("VECTORIZER_PATH", "my_tfidf_vectorizer.pkl")
     UNCERTAINTY_THRESHOLD: float = _env_float("UNCERTAINTY_THRESHOLD", 0.10)
     MAX_INPUT_LENGTH: int = _env_int("MAX_INPUT_LENGTH", 20_000)
+    MAX_URL_LENGTH: int = _env_int("MAX_URL_LENGTH", 2048)
+    MAX_REQUEST_BODY_BYTES: int = _env_int("MAX_REQUEST_BODY_BYTES", 300_000)
     MAX_URL_RESPONSE_SIZE: int = _env_int("MAX_URL_RESPONSE_SIZE", 1_000_000)
     REQUEST_TIMEOUT: float = _env_float("REQUEST_TIMEOUT", 10)
     CONNECT_TIMEOUT: float = _env_float("CONNECT_TIMEOUT", 5)
@@ -97,6 +99,8 @@ class Settings:
             "vectorizer_path": str(self.vectorizer_file),
             "uncertainty_threshold": self.UNCERTAINTY_THRESHOLD,
             "max_input_length": self.MAX_INPUT_LENGTH,
+            "max_url_length": self.MAX_URL_LENGTH,
+            "max_request_body_bytes": self.MAX_REQUEST_BODY_BYTES,
             "top_features": self.TOP_FEATURES,
             "request_timeout": self.REQUEST_TIMEOUT,
             "connect_timeout": self.CONNECT_TIMEOUT,
@@ -115,6 +119,16 @@ class Settings:
             warnings.append(
                 f"MAX_INPUT_LENGTH={self.MAX_INPUT_LENGTH} is very short; "
                 "most articles will be rejected."
+            )
+        if self.MAX_URL_LENGTH < 20:
+            warnings.append(
+                f"MAX_URL_LENGTH={self.MAX_URL_LENGTH} is suspiciously short "
+                "and will reject most valid article URLs."
+            )
+        if self.MAX_REQUEST_BODY_BYTES < 1024:
+            warnings.append(
+                f"MAX_REQUEST_BODY_BYTES={self.MAX_REQUEST_BODY_BYTES} is very "
+                "small and will reject legitimate analysis requests."
             )
         if self.CACHE_URL_MAX_ITEMS < 1:
             warnings.append(f"CACHE_URL_MAX_ITEMS={self.CACHE_URL_MAX_ITEMS} must be >= 1.")
