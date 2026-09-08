@@ -115,6 +115,10 @@ class ModelService:
         self._vectorizer: Any | None = None
         self._backend: str | None = None  # "keras" | "sklearn"
         self._bundle: bool = False
+        # Feature names are materialised once at load and reused across every
+        # request instead of recomputed per prediction (sklearn's
+        # get_feature_names_out() rebuilds the full vocabulary each call).
+        self._feature_names_cache: list[str] | None = None
         # Lifecycle metadata filled by load(); used by /health and readiness.
         self.model_sha256: str | None = None
         self.vectorizer_sha256: str | None = None
@@ -153,6 +157,7 @@ class ModelService:
         if not self._bundle or self.vectorizer_file.exists():
             self.vectorizer_sha256 = fingerprint_file(self.vectorizer_file).sha256
         self.vocab_size = self._measure_vocab_size()
+        self._feature_names_cache = self._feature_names_from_vectorizer()
         self.loaded_at = _time.monotonic()
 
     def _measure_vocab_size(self) -> int | None:
@@ -480,7 +485,16 @@ class ModelService:
         return contributions[:limit]
 
     def _feature_names(self) -> list[str]:
-        """Return the vectorizer's feature names (works across sklearn versions)."""
+        """Return the vectorizer's feature names (works across sklearn versions).
+
+        The list is captured once during load() (O(vocab)) and reused for every
+        prediction; rebuilding it per request is a measurable bottleneck.
+        """
+        if self._feature_names_cache is None:
+            self._feature_names_cache = self._feature_names_from_vectorizer()
+        return self._feature_names_cache
+
+    def _feature_names_from_vectorizer(self) -> list[str]:
         if hasattr(self._vectorizer, "get_feature_names_out"):
             return list(self._vectorizer.get_feature_names_out())
         return list(self._vectorizer.get_feature_names())
