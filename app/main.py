@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from app.cache import TTLCache, cache_key
 from app.config import settings
 from app.model import ModelLoadError, ModelService
+from app.observability import RequestIDMiddleware, attach_request_id_filter
 from app.prediction_log import PredictionEntry, prediction_log
 from app.preprocessing import ensure_stopwords_available
 from app.ratelimit import RateLimitMiddleware, SlidingWindowRateLimiter
@@ -140,6 +141,10 @@ def create_app(app_state: AppState | None = None) -> FastAPI:
 
     # Outermost: enforces the per-IP sliding-window rate limit (audit B5).
     application.add_middleware(RateLimitMiddleware)
+
+    # Outermost-of-all: correlates every request (even rejected ones) with a
+    # request id and emits a structured access log (audit B7).
+    application.add_middleware(RequestIDMiddleware)
 
     @application.exception_handler(Exception)
     def unhandled_exception(request: Request, exc: Exception):
