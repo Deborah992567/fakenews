@@ -17,11 +17,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.cache import TTLCache, cache_key
 from app.config import settings
 from app.model import ModelLoadError, ModelService
 from app.prediction_log import PredictionEntry, prediction_log
 from app.preprocessing import ensure_stopwords_available
-from app.scraper import ScrapeError, fetch_article
+from app.scraper import ExtractResult, ScrapeError, fetch_article
 from app.schemas import (
     HealthResponse,
     PredictRequest,
@@ -44,6 +45,12 @@ class AppState:
 
     def __init__(self) -> None:
         self.model: ModelService | None = None
+        # Bounded in-memory memoisation of fetched/extracted URL results. It
+        # never stores request bodies; only deterministic extraction outputs.
+        self.url_cache: TTLCache = TTLCache(
+            ttl_seconds=settings.CACHE_URL_TTL_SECONDS,
+            max_items=settings.CACHE_URL_MAX_ITEMS,
+        )
 
 
 def create_app(app_state: AppState | None = None) -> FastAPI:
@@ -270,7 +277,18 @@ def create_app(app_state: AppState | None = None) -> FastAPI:
     @application.post("/predict-url", response_model=PredictResponse)
     def predict_url(request: Request, req: UrlRequest) -> PredictResponse:
         service = _require_model(request)
-        extract = fetch_article(req.url)
+        key = cache_key(req.url)
+        cached = (
+            shared_state.url_cache.get(key)
+            if settings.CACHE_URL_ENABLED
+            else None
+        )
+        if cached is not None:
+            extract: ExtractResult = cached
+        else:
+            extract = fetch_article(req.url)
+            if extract.text.strip() and settings.CACHE_URL_ENABLED:
+                shared_state.url_cache.put(key, extract)
         if not extract.text.strip():
             raise HTTPException(
                 status_code=422,

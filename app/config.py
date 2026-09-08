@@ -40,6 +40,13 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 class Settings:
     """Typed access to application settings.
 
@@ -60,6 +67,9 @@ class Settings:
     MAX_REDIRECTS: int = _env_int("MAX_REDIRECTS", 5)
     CORS_ORIGINS: str = _env_str("CORS_ORIGINS", "*")
     TOP_FEATURES: int = _env_int("TOP_FEATURES", 10)
+    CACHE_URL_ENABLED: bool = _env_bool("CACHE_URL_ENABLED", True)
+    CACHE_URL_TTL_SECONDS: int = _env_int("CACHE_URL_TTL_SECONDS", 600)
+    CACHE_URL_MAX_ITEMS: int = _env_int("CACHE_URL_MAX_ITEMS", 512)
 
     @property
     def model_file(self) -> Path:
@@ -106,6 +116,10 @@ class Settings:
                 f"MAX_INPUT_LENGTH={self.MAX_INPUT_LENGTH} is very short; "
                 "most articles will be rejected."
             )
+        if self.CACHE_URL_MAX_ITEMS < 1:
+            warnings.append(f"CACHE_URL_MAX_ITEMS={self.CACHE_URL_MAX_ITEMS} must be >= 1.")
+        if self.CACHE_URL_TTL_SECONDS < 0:
+            warnings.append(f"CACHE_URL_TTL_SECONDS={self.CACHE_URL_TTL_SECONDS} must be >= 0.")
         if self.PORT < 1 or self.PORT > 65535:
             warnings.append(f"PORT={self.PORT} is outside valid range 1-65535.")
         if self.TOP_FEATURES < 1:
