@@ -46,6 +46,12 @@ All configurable via env or `.env` file (see `.env.example`):
 - `VECTORIZER_PATH` (default `my_tfidf_vectorizer.pkl`)
 - `UNCERTAINTY_THRESHOLD` (default 0.10)
 - `MAX_INPUT_LENGTH` (default 20000)
+- `MAX_URL_LENGTH` (default 2048 — centralized URL cap)
+- `MAX_REQUEST_BODY_BYTES` (default 300000 — 413 beyond this)
+- `CACHE_URL_ENABLED` / `CACHE_URL_TTL_SECONDS` / `CACHE_URL_MAX_ITEMS` — bounded
+  in-memory cache of URL extraction results (defaults true/600/512)
+- `RATE_LIMIT_ENABLED` / `RATE_LIMIT_REQUESTS` / `RATE_LIMIT_WINDOW_SECONDS` /
+  `RATE_LIMIT_MAX_IPS` — per-IP sliding-window rate limit (default true/120/60/10000)
 - `LOG_LEVEL` (default INFO)
 
 Legacy Keras artifacts `my_model.h5`/`countvectorizer.pkl` are preserved as
@@ -54,16 +60,21 @@ rollback backups under `artifacts/baseline/` (hashes in
 
 ## Architecture
 - `app/config.py` — Settings from env vars
-- `app/main.py` — FastAPI app, lifespan, routes
+- `app/main.py` — FastAPI app, lifespan, routes, middleware wiring
 - `app/model.py` — ModelService (sklearn LR/TF-IDF or legacy Keras + vectorizer)
 - `app/preprocessing.py` — NLTK text cleaning pipeline
 - `app/schemas.py` — Pydantic request/response models
-- `app/scraper.py` — URL fetching with SSRF protection
+- `app/scraper.py` — URL fetching with SSRF protection + thread-local sessions
+- `app/artifacts.py` — artifact fingerprinting (SHA-256)
+- `app/cache.py` — bounded TTL cache (URL extraction memoization)
+- `app/ratelimit.py` — per-IP sliding-window rate limiter + middleware
+- `app/security.py` — request-body size limiting middleware
+- `app/observability.py` — request-id correlation + structured access logging
 - `app/prediction_log.py` — Server-side prediction ring buffer
-- `app/logging_config.py` — Logging setup
+- `app/logging_config.py` — Logging setup (request-id aware)
 - `app/verify_model.py` — Standalone model verification script
 - `frontend/` — Single-page HTML/CSS/JS frontend
-- `tests/` — pytest test suite (100+ tests)
+- `tests/` — pytest test suite (270+ tests)
 
 ## Model Details
 - Promoted production model: scikit-learn LogisticRegression on TF-IDF features
@@ -82,3 +93,16 @@ rollback backups under `artifacts/baseline/` (hashes in
 - pytest for testing (no unittest)
 - Frontend: vanilla JS, no frameworks
 - Never merge to `main`; work only on `feature/detector-overhaul`
+
+## Phase 10 Notes (scalability & hardening)
+- Run the full suite with `pytest` (272 tests). Do not weaken or delete tests.
+- Model artifacts are FROZEN; every load fingerprints them and tests pin the
+  exact SHA-256 digests from `reports/release_manifest.json`.
+- Rate limiter and URL cache are per-process, in-memory, bounded and fail-open;
+  see `docs/concurrency.md` for the documented multi-worker limits.
+- New middleware (rate limit, body-size, request-id) is registered in
+  `create_app()`; keep them outermost/ordered as documented in main.py.
+- Middleware behavior is covered by `tests/test_ratelimit.py`,
+  `tests/test_security.py`, `tests/test_observability.py`; cache by
+  `tests/test_cache.py`; lifecycle by `tests/test_model_lifecycle.py` and
+  `tests/test_app_lifecycle.py`.
