@@ -41,14 +41,34 @@ class RequestIdFilter(logging.Filter):
 
 
 def attach_request_id_filter() -> None:
-    """Attach the filter to all handlers on the ``fakenews`` logger tree."""
-    root = logging.getLogger("fakenews")
-    for handler in root.handlers:
-        if not any(
-            isinstance(hf, RequestIdFilter)
-            for hf in getattr(handler, "filters", [])
-        ):
-            handler.addFilter(RequestIdFilter())
+    """Attach the filter to every handler that can format ``fakenews`` records.
+
+    ``fakenews`` records propagate to the root logger (whose handler is what
+    ``configure_logging()`` configures via ``basicConfig`` and what uvicorn may
+    replace or extend at startup), so the filter must be present on the whole
+    ``fakenews`` tree *and* on the root logger's handlers — otherwise a handler
+    using a ``request_id``-aware format raises ``ValueError``.
+    """
+    loggers = [
+        logging.getLogger("fakenews"),
+        logging.root,
+    ]
+    loggers += [
+        logging.getLogger(name)
+        for name in sorted(logging.root.manager.loggerDict)
+        if name == "fakenews" or name.startswith("fakenews.")
+    ]
+    seen: set[int] = set()
+    for target in loggers:
+        for handler in target.handlers:
+            if id(handler) in seen:
+                continue
+            seen.add(id(handler))
+            if not any(
+                isinstance(hf, RequestIdFilter)
+                for hf in getattr(handler, "filters", [])
+            ):
+                handler.addFilter(RequestIdFilter())
 
 
 def _resolve_request_id(scope: dict[str, Any]) -> str:

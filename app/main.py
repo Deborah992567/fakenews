@@ -76,6 +76,11 @@ def create_app(app_state: AppState | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # Re-attach the request-id filter: uvicorn (or any embedding runtime)
+        # may (re)configure logging through dictConfig after import, replacing
+        # or adding root handlers; without the filter a request_id-aware formatter
+        # raises ValueError on the first log record (observability B7).
+        attach_request_id_filter()
         # Ensure NLTK data is available before any predictions.
         ensure_stopwords_available()
         # Log configuration warnings before model load.

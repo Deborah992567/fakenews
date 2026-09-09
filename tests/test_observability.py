@@ -106,3 +106,43 @@ class TestRequestIdFilter:
         )
         RequestIdFilter().filter(record)
         assert record.request_id == "-"
+
+
+class TestRootHandlerFormatting:
+    def test_root_handler_formats_request_id_aware_records(self, caplog):
+        """Regression: a request_id-aware formatter on the ROOT handler must not
+        raise ValueError when an embedded runtime (uvicorn) substitutes handlers
+        after import. Re-attaching the filter covers the whole tree + root."""
+        from app.observability import attach_request_id_filter
+
+        attach_request_id_filter()
+        handler = logging.StreamHandler(__import__("io").StringIO())
+        handler.setFormatter(
+            logging.Formatter("%(request_id)s|%(message)s")
+        )
+        logging.root.addHandler(handler)
+        target = logging.getLogger("fakenews")
+        previous_level = target.level
+        target.setLevel(logging.INFO)
+        try:
+            token = request_id_var.set("trace-9")
+            try:
+                target.info("hello from fixture")
+            finally:
+                request_id_var.reset(token)
+            text = handler.stream.getvalue()
+            assert "trace-9|hello from fixture" in text
+        finally:
+            target.setLevel(previous_level)
+            logging.root.removeHandler(handler)
+
+    def test_access_logging_emits_records_without_logging_error(self, caplog):
+        """No handler on the fakenews→root chain may raise during formatting."""
+        from app.observability import attach_request_id_filter
+
+        attach_request_id_filter()
+        client = TestClient(app)
+        with caplog.at_level(logging.INFO, logger="fakenews.access"):
+            resp = client.get("/health/live")
+        assert resp.status_code == 200
+        assert any(r.name == "fakenews.access" for r in caplog.records)
