@@ -1,0 +1,27 @@
+.git/
+.gitignore
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+env/
+.env
+.env.*
+.pytest_cache/
+.coverage
+htmlcov/
+.idea/
+.vscode/
+.DS_Store
+*.log
+fake_news.ipynb
+# Development/test paths not needed in the runtime image.
+artifacts/
+reports/
+docs/
+tests/
+scripts/
+*.md
+Makefile
+docker-compose.yml
